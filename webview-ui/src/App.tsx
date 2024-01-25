@@ -4,6 +4,9 @@ import { useState } from 'react'
 import './App.css'
 import AlignmentDialogWrapper from './AlignmentDialogWrapper';
 
+function deepCopy(obj: any): any {
+  return JSON.parse(JSON.stringify(obj));
+}
 
 //This code was given as an example for using Monica with Vite.  I am not including it until I run into a problem that will tell me why.
 //it is needed for the editor.
@@ -56,7 +59,7 @@ interface InternalUsfmJsonFormat{
   },
   alignmentData: {
       version: number,
-      //TODO: Add more here
+      perf: any,
   }
 }
 interface UsfmMessage{
@@ -65,7 +68,9 @@ interface UsfmMessage{
   requestId?: number,
   commandArg?: string,
   response?: any,
+  error?: any,
 }
+
 interface VsCodeStub{
   postMessage: (message: UsfmMessage) => void
 }
@@ -95,14 +100,26 @@ export default function App() {
     },
     alignmentData: {
       version: -1,
-      //TODO: Add more here
+      perf: null
     }
   });
+  const [ documentDataState, _setDocumentDataState] = useState<InternalUsfmJsonFormat>(_documentDataRef.current);
 
   const ignoreChangeCountRef = React.useRef(0);
 
-  const setDocumentData = ( newDocumentData : InternalUsfmJsonFormat ) => {
+  const setDocumentData = ( newDocumentData : InternalUsfmJsonFormat, sendSyncMessage : boolean = true ) => {
     _documentDataRef.current = newDocumentData;
+    _setDocumentDataState( newDocumentData );
+    if( sendSyncMessage ){
+      vscodeRef.current?.postMessage({ command: 'sync', content: getDocumentData() });
+    }
+  }
+
+  const setAlignmentData = ( newAlignmentData : any ) => {
+    const newDocumentData = deepCopy( getDocumentData );
+    newDocumentData.alignmentData.perf = newAlignmentData;
+    newDocumentData.alignmentData.version += 1 + Math.random();
+    setDocumentData( newDocumentData );
   }
 
   const getDocumentData = () : InternalUsfmJsonFormat => {
@@ -207,8 +224,14 @@ export default function App() {
   const postMessageWithResponse = (message: UsfmMessage): Promise<UsfmMessage> =>  {
     const requestId = _requestIdRef.current;
     _requestIdRef.current += 1;
-    const p = new Promise<UsfmMessage>((resolve) => {
-      _callbacksRef.current.set(requestId, resolve);
+    const p = new Promise<UsfmMessage>((resolve,error) => {
+      _callbacksRef.current.set(requestId, (response: UsfmMessage) => {
+        if( response.error ){
+          error( response.error );
+        }else{
+          resolve( response );
+        }
+      });
     })
 
     vscodeRef.current?.postMessage({ ...message, requestId });
@@ -221,6 +244,10 @@ export default function App() {
 
   const getFile = async (path: string) : Promise<string|undefined> => {
     return (await postMessageWithResponse( { command: 'getFile', commandArg: path } )).response;
+  }
+
+  const getDocumentUri = async (): Promise<string> => {
+    return (await postMessageWithResponse( { command: 'getDocumentUri' } )).response;
   }
 
   //Go ahead and subscribe to the plugin events.
@@ -257,7 +284,7 @@ export default function App() {
           }
         }
         if( doUpdateState ){
-          setDocumentData(newDocumentData);
+          setDocumentData(newDocumentData, false);
         }
         if( doEditorUpdate ){
           ignoreChangeCountRef.current += 1;
@@ -326,6 +353,9 @@ export default function App() {
         reference={appState.alignmentReference} 
         getConfiguration={getConfiguration}
         getFile={getFile}
+        alignmentData={documentDataState.alignmentData.perf}
+        setAlignmentData={setAlignmentData}
+        getDocumentUri={getDocumentUri}
       />
     </p>
   </>

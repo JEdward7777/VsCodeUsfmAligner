@@ -24,6 +24,7 @@ interface UsfmMessage{
     requestId?: number,
     commandArg?: string,
     response?: any,
+    error?: any,
 }
 
 export function disposeAll(disposables: vscode.Disposable[]): void {
@@ -744,13 +745,18 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
             case 'getFile':
                 const filePath = message.commandArg!;
                 const firstWorkSpaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri.fsPath;
-                const filePathRebased = firstWorkSpaceFolder ? path.join(firstWorkSpaceFolder, filePath) : filePath;
+                const filePathRebased = firstWorkSpaceFolder ? path.resolve(firstWorkSpaceFolder, filePath) : filePath;
 
                 if (filePathRebased) {
                     fs.readFile(filePathRebased, 'utf8', (err, data) => {
                         if (err) {
                             // Handle error
                             console.error(err);
+                            webviewPanel.webview.postMessage({
+                                command: 'response',
+                                requestId: message.requestId,
+                                error: err
+                            });
                         } else {
                             webviewPanel.webview.postMessage({
                                 command: 'response',
@@ -760,6 +766,14 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
                         }
                     });
                 }
+                break;
+
+            case 'getDocumentUri':
+                webviewPanel.webview.postMessage({
+                    command: 'response',
+                    requestId: message.requestId,
+                    response: document.uri.fsPath,
+                });
                 break;
 		}
 	}
