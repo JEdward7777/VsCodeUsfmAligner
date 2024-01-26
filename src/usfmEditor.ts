@@ -69,6 +69,238 @@ export abstract class Disposable {
 	}
 }
 
+function computeSourceFilenames(filename: string, sourceMap: { [key: string]: string[] }): string[] {
+
+    const transformedFilenames: string[] = [];
+
+    for (const regexPattern in sourceMap) {
+        const regex = new RegExp(regexPattern);
+        const match = filename.match(regex);
+
+        if (match) {
+            // iterate through the values in sourceMap[RegexPattern]
+            // and replace in the filename
+            for (const pattern of sourceMap[regexPattern]) {
+
+                // Use capture groups to replace in the corresponding value
+                const replacementPiece = pattern.replace(/\$(\d+)/g, (_, groupIndex) => match[parseInt(groupIndex, 10)]);
+
+                //now put the replacement in the filename.
+                const transformedFilename = filename.replace(regex, replacementPiece);
+
+                transformedFilenames.push(transformedFilename);
+            }
+        }
+    }
+
+    //return all the matches.
+    return transformedFilenames;
+}
+
+/**
+ * Asynchronously retrieves the source map.  The source map is what
+ * maps source files (greek, hebrew) from the target files that you are working
+ * with.
+ * @return {Promise<{ [key: string]: string[] }>} The retrieved source map
+ */
+async function getSourceMap() : Promise< { [key: string]: string[] } >{
+    if( !vscode.workspace ) return {};
+
+    
+    console.log( "requesting sourceMap." );
+    //let sourceMap : any = await getConfiguration("sourceMap");
+    let sourceMap : { [key: string]: string[] } | undefined = vscode.workspace?.getConfiguration("usfmEditor").get("sourceMap" );
+    
+    if( sourceMap === undefined ) return {};
+
+    if( Object.keys(sourceMap).length == 0 ){ 
+        sourceMap = {"([^\\\\/]*)\\.usfm": ["source/$1.usfm"]}; 
+    }
+    console.log( "received sourceMap. " + sourceMap );
+
+    return sourceMap;
+}
+
+
+function getFile( filePath: string ): Promise< string | undefined > {
+    const firstWorkSpaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri.fsPath;
+    const filePathRebased = firstWorkSpaceFolder ? path.resolve(firstWorkSpaceFolder, filePath) : filePath;
+
+    return new Promise( (resolve, reject) => {
+        fs.readFile(filePathRebased, 'utf8', (err, data) => {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(data);
+            }
+        });
+    });
+}
+
+async function getFirstValidFile( filenames: string[] ) : Promise<string | undefined> {
+    for( const filename of filenames ){
+        try{
+            let fileContent = await getFile( filename );
+            if( fileContent ){
+                return fileContent;
+            }
+        }catch{
+            //ignore
+        }
+    }
+    return undefined;
+}
+
+async function getSourceFileForTargetFile( filename: string ) : Promise< string | undefined > {
+    let sourceMap = await getSourceMap();    
+    let sourceFilenames = computeSourceFilenames( filename, sourceMap );
+    return getFirstValidFile( sourceFilenames );
+}
+
+function usfmToPerf( usfm: string ): any {
+    const pk = new Proskomma();
+    pk.importDocument({lang: "xxx", abbr: "yyy"}, "usfm", usfm);
+    return JSON.parse(pk.gqlQuerySync("{documents {perf}}").data.documents[0].perf);
+}
+
+function pullVerseFromPerf( reference: string, perf: any ): any {
+    if( !reference ) return undefined;
+    
+    const referenceParts = reference.split(":");
+
+    if( referenceParts.length != 2 ) return undefined;
+
+    const chapter : string = referenceParts[0];
+    const verse : string = referenceParts[1];
+
+
+    let currentChapter : string = "-1";
+    let currentVerse : string = "-1";
+
+    const collectedContent : any[] = [];
+
+    //first iterate the chapters.
+    //perf.sequences[perf.main_sequence_id].blocks is an array.
+    for( const block of perf.sequences[perf.main_sequence_id].blocks ){
+        if( block.type == 'paragraph' && block.subtype == 'usfm:p' ){
+            for( const content of block.content ){
+                if( content.type == 'mark' ){
+                    if( content.subtype == 'chapter' ){
+                        currentChapter = content.atts.number;
+                    }else if( content.subtype == 'verses' ){
+                        currentVerse = content.atts.number;
+                    }
+                    //if we have changed the reference and we have already
+                    //collected content, then we can stop scanning and just return
+                    if( collectedContent.length > 0 && currentChapter != chapter && currentVerse != verse ){
+                        return collectedContent;
+                    }
+                }else{
+                    //if we are in the correct reference then collect the content.
+                    if( currentChapter == chapter && currentVerse == verse ){
+                        collectedContent.push( content );
+                    }
+                }
+            }
+        }
+    }
+
+    return collectedContent;
+}
+
+function perfContentToTWord( perfContent: any ){
+    const word : { [key: string]: any } = {};
+    if ("x-occurrence"  in perfContent?.atts) { word["occurrence" ] = perfContent.atts["x-occurrence" ].join(" "); }
+    if ("x-occurrences" in perfContent?.atts) { word["occurrences"] = perfContent.atts["x-occurrences"].join(" "); }
+    if ("x-content"     in perfContent?.atts) { word["word"       ] = perfContent.atts["x-content"    ].join(" "); }
+    if ("content"       in perfContent      ) { word["word"       ] = perfContent.content              .join(" "); }
+    if ("x-lemma"       in perfContent?.atts) { word["lemma"      ] = perfContent.atts["x-lemma"      ].join(" "); }
+    if ("lemma"         in perfContent?.atts) { word["lemma"      ] = perfContent.atts["lemma"        ].join(" "); }
+    if ("x-morph"       in perfContent?.atts) { word["morph"      ] = perfContent.atts["x-morph"      ].join(","); }
+    if ("x-strong"      in perfContent?.atts) { word["strong"     ] = perfContent.atts["x-strong"     ].join(" "); }
+    if ("strong"        in perfContent?.atts) { word["strong"     ] = perfContent.atts["strong"       ].join(" "); }
+    return word;
+}
+
+function extractWrappedWordsFromPerfVerse( perfVerse: any ): any[] {
+    const wrappedWords : any[] = [];
+    for( const content of perfVerse ){
+        //If content is a string just skip it.  It is like commas and stuff.
+        if( typeof content == 'string' ){
+            //pass
+        }else if( content.type == "wrapper" && content.subtype == "usfm:w" ){
+            wrappedWords.push( perfContentToTWord( content) );
+        }
+    }
+    return wrappedWords;
+}
+
+function extractAlignmentsFromPerfVerse( perfVerse: any ): any[] {
+    const alignments : any[] = [];
+    const sourceStack : any[] = [];
+    const targetStack : any[] = [];
+    for( const content of perfVerse ){
+
+        if( content.type == "start_milestone" && content.subtype == "usfm:zaln" ){
+            sourceStack.push( content );
+        }else if( content.type == "end_milestone" && content.subtype == "usfm:zaln" ){
+            //process the source and target stacks when we are a place where we are popping
+            if( targetStack.length > 0 ){
+                const sourceNgram = sourceStack.map( perfContentToTWord );
+                const targetNgram = targetStack.map( perfContentToTWord );
+
+                alignments.push( { sourceNgram, targetNgram } );
+
+                //clear the targetStack
+                targetStack.length = 0;
+            }
+
+            sourceStack.pop();
+        }else if( content.type == "wrapper" && content.subtype == "usfm:w" ){
+            targetStack.push( content );
+        }
+    }
+    return alignments;
+}
+
+async function getAlignmentData( filename: string, data: InternalUsfmJsonFormat, reference: string ): Promise< any | undefined >{
+    if( !reference ) return undefined;
+
+    const sourceUsfm = await getSourceFileForTargetFile( filename );
+
+    if( !sourceUsfm ) return undefined;
+
+    const sourceUsfmPerf = usfmToPerf( sourceUsfm );
+
+    const strippedUsfmPerf = usfmToPerf( data.strippedUsfm.text );
+
+
+    //now bring up the pipeline in order to merge it back with the alignment data
+    let mergedPerf = undefined;
+    try{
+        const pipelineH = new PipelineHandler({proskomma: new Proskomma()});
+        const mergeAlignmentPipeline_output = await pipelineH.runPipeline('mergeAlignmentPipeline', {
+            perf: strippedUsfmPerf,
+            strippedAlignment: data.alignmentData.perf,
+        });
+        mergedPerf = mergeAlignmentPipeline_output.perf;
+    }catch( e ){
+        console.log( e );
+    }
+
+    if( !mergedPerf ) return undefined;
+
+    const sourceVerse = pullVerseFromPerf( reference, sourceUsfmPerf );
+    const mergedVerse = pullVerseFromPerf( reference, mergedPerf     );
+
+    const wordBank = extractWrappedWordsFromPerfVerse( sourceVerse );
+    const alignments = extractAlignmentsFromPerfVerse( mergedVerse );
+    
+    console.log( "Checkpoint" );
+
+    return {wordBank, alignments};
+}
+
 
 async function usfmToInternalJson( mergedUsfm: string ): Promise<InternalUsfmJsonFormat> {
 
@@ -775,6 +1007,21 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
                     response: document.uri.fsPath,
                 });
                 break;
+
+            case 'getAlignmentData':
+                getAlignmentData( document.uri.fsPath, message.content!, message.commandArg! ).then( response => {
+                    webviewPanel.webview.postMessage({
+                        command: 'response',
+                        requestId: message.requestId,
+                        response
+                    });
+                }).catch( err => {
+                    webviewPanel.webview.postMessage({
+                        command: 'response',
+                        requestId: message.requestId,
+                        error: err
+                    });
+                });
 		}
 	}
 

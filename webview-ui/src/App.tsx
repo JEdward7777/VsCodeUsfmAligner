@@ -250,6 +250,10 @@ export default function App() {
     return (await postMessageWithResponse( { command: 'getDocumentUri' } )).response;
   }
 
+  const getAlignmentData = async ( reference: string ): Promise<any|undefined> => {
+    return (await postMessageWithResponse( { command: 'getAlignmentData', content: getDocumentData(), commandArg: reference } )).response;
+  }
+
   //Go ahead and subscribe to the plugin events.
   useEffect(() => {
     const messageEventListener = (e: {data: UsfmMessage}) => {
@@ -356,6 +360,7 @@ export default function App() {
         alignmentData={documentDataState.alignmentData.perf}
         setAlignmentData={setAlignmentData}
         getDocumentUri={getDocumentUri}
+        getAlignmentData={getAlignmentData}
       />
     </p>
   </>

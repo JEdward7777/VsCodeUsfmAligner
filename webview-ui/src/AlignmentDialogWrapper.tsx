@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 
 interface AlignmentDialogWrapperProps {
     reference: string;
@@ -7,35 +7,10 @@ interface AlignmentDialogWrapperProps {
     alignmentData: any;
     setAlignmentData: (alignmentData: any) => void;
     getDocumentUri: () => Promise<string>;
+    getAlignmentData: (reference: string) => Promise<any>;
 }
 
-function computeSourceFilenames(filename: string, sourceMap: { [key: string]: string[] }): string[] {
 
-    const transformedFilenames : string[] = [];
-
-    for (const regexPattern in sourceMap) {
-      const regex = new RegExp(regexPattern);
-      const match = filename.match(regex);
-  
-      if (match) {
-        // iterate through the values in sourceMap[RegexPattern]
-        // and replace in the filename
-        for( const pattern of sourceMap[regexPattern] ) {
-
-            // Use capture groups to replace in the corresponding value
-            const replacementPiece = pattern.replace(/\$(\d+)/g, (_, groupIndex) => match[parseInt(groupIndex, 10)]);
-
-            //now put the replacement in the filename.
-            const transformedFilename = filename.replace(regex, replacementPiece);
-
-            transformedFilenames.push( transformedFilename );
-        }
-      }
-    }
-  
-    //return all the matches.
-    return transformedFilenames;
-  }
 
 // interface SourceMapI{
 //     [key: string]: string
@@ -46,23 +21,16 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
     getConfiguration,
     getFile,
     getDocumentUri,
+    getAlignmentData,
 }) => {
 
     //state var for the source map.
     //const [sourceMap, setSourceMap] = React.useState<SourceMapI>({});
 
 
-    async function getSourceMap() : Promise< { [key: string]: string[] } >{
-        console.log( "requesting sourceMap." );
-        let sourceMap : any = await getConfiguration("sourceMap");
-        if( Object.keys(sourceMap).length == 0 ){ 
-            sourceMap = {"([^\\\\/]*)\\.usfm": "source/$1.usfm"}; 
-        }
-        console.log( "received sourceMap. " + sourceMap );
-        return sourceMap
-    }
 
-    const [inited, setInited] = React.useState<boolean>(false);
+
+    const [alignmentData, setAlignmentData] = React.useState<any>({});
 
     async function getFirstValidFile( filenames: string[] ) : Promise<string | undefined> {
         for( const filename of filenames ){
@@ -78,19 +46,14 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
         return undefined;
     }
 
-    async function init(){
-        if( !inited ){
-            let sourceMap = await getSourceMap();
-            let filename = await getDocumentUri();
-            let sourceFilenames = computeSourceFilenames( filename, sourceMap );
-            let fileContent = await getFirstValidFile( sourceFilenames );
-            console.log( "filename: " + filename );
-            console.log( "sourceMap: " + Object.entries(sourceMap).map(([key, value]) => `${key} => ${value}`).join('\n') );
-            console.log( "fileContent: " + fileContent );
-            setInited(true);
-        }
+    async function figureAlignmentData(){
+        let alignmentData = await getAlignmentData(reference);
+        console.log( "alignmentData: " + alignmentData );
+        setAlignmentData(alignmentData);
     }
-    init();
+    useEffect(() => {
+        figureAlignmentData();
+    },[reference]);
 
 
     //const [smallFile, setSmallFile] = React.useState<string>("");
