@@ -182,7 +182,7 @@ function pullVerseFromPerf( reference: string, perf: any ): any {
     //first iterate the chapters.
     //perf.sequences[perf.main_sequence_id].blocks is an array.
     for( const block of perf.sequences[perf.main_sequence_id].blocks ){
-        if( block.type == 'paragraph' && block.subtype == 'usfm:p' ){
+        if( block.type == 'paragraph' ){
             for( const content of block.content ){
                 if( content.type == 'mark' ){
                     if( content.subtype == 'chapter' ){
@@ -363,7 +363,7 @@ async function getAlignmentData( filename: string, data: InternalUsfmJsonFormat,
     
     console.log( "Checkpoint" );
 
-    return {wordBank: targetWords, alignments: supplementedAlignments};
+    return {wordBank: targetWords, alignments: supplementedAlignments, reference: reference};
 }
 
 

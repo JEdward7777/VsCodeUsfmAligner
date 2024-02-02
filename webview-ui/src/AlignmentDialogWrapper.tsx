@@ -68,13 +68,14 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
 
     return (
         <div id="AlignmentDialogWrapper">
-            <p>Alignment dialog wrapper</p>
+            <p>Alignment dialog wrapper {reference}</p>
             {Object.keys(alignmentData || {}).length === 0 ? (
                 // Show loading message if alignments are an empty dictionary
                 <p>Loading...</p>
             ) : (
                 // Render the SuggestingWordAligner component if alignments are not empty
                 <SuggestingWordAligner
+                    key={alignmentData?.reference}
                     style={{ maxHeight: `${height}px`, overflowY: 'auto' }}
                     verseAlignments={alignmentData?.alignments || null}
                     targetWords={alignmentData?.wordBank || null}
