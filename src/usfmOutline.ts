@@ -32,6 +32,8 @@ export class UsfmOutlineProvider implements vscode.TreeDataProvider< string > {
 
 	private autoRefresh = true;
 
+    private bookName: string  = "";
+
 	constructor(private context: vscode.ExtensionContext, private editorProvider: UsfmEditorAbstraction) {
 
         editorProvider.onUsfmActiveEditorChanged(e => this.onUsfmActiveEditorChanged(e)) ;
@@ -77,6 +79,7 @@ export class UsfmOutlineProvider implements vscode.TreeDataProvider< string > {
 	// }
 
 	private onUsfmActiveEditorChanged( document?: UsfmDocumentAbstraction): void {
+        console.log( "onUsfmActiveEditorChanged" );
         if (document) {
             var enabled = document !== undefined;
             vscode.commands.executeCommand('setContext', 'usfmOutlineEnabled', enabled);
@@ -90,6 +93,7 @@ export class UsfmOutlineProvider implements vscode.TreeDataProvider< string > {
 	}
 
 	private onUsfmDocumentChanged(e: vscode.CustomDocumentEditEvent<UsfmDocumentAbstraction>): void {
+        console.log( "onUsfmDocumentChanged" );
 		if (this.autoRefresh) {
             //Need to pass the document from the event into parseStuff
             this.parseStuff( e.document );
@@ -124,6 +128,15 @@ export class UsfmOutlineProvider implements vscode.TreeDataProvider< string > {
                     });
                     verseMatch = verseFinderRegex.exec(strippedUsfm);
                 }
+            }
+
+            //now find the book name from \mt1 if it is in the document.
+            const bookNameRegex = /\\mt1([^\\]+)/g;
+            const bookNameMatch = bookNameRegex.exec(strippedUsfm);
+            if( bookNameMatch !== null ){
+                this.bookName = bookNameMatch[1].replaceAll( "\n", " " ).replaceAll( "\r", " " ).trim();
+            }else{
+                this.bookName = "";
             }
 
         }
@@ -175,11 +188,11 @@ export class UsfmOutlineProvider implements vscode.TreeDataProvider< string > {
             contextValue = "root";
         }else{
             if( verse === '' ){
-                content = `chapter ${chapter}`;
+                content = `${this.bookName} ${chapter}`;
                 hasChildren = true;
                 contextValue = "chapter";
             }else{
-                content = `verse ${chapter}:${verse}`;
+                content = `${this.bookName} ${chapter}:${verse}`;
                 hasChildren = false;
                 contextValue = "verse";
             }

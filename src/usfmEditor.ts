@@ -795,13 +795,6 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
                 };
                 webviewPanel.webview.postMessage(updateMessage);
 			}
-            
-            const editEvent: vscode.CustomDocumentEditEvent<UsfmDocument> = {
-                document,
-                undo: () => {},
-                redo: () => {},
-                ...e
-            };
 		}));
 
 		document.onDidDispose(() => disposeAll(listeners));
