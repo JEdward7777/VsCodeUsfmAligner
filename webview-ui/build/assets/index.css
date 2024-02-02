@@ -66,7 +66,7 @@ button:focus-visible {
     background-color: #f9f9f9;
   }
 }
-#root {
+/* #root {
   max-width: 1280px;
   margin: 0 auto;
   padding: 2rem;
@@ -107,8 +107,33 @@ button:focus-visible {
 
 .read-the-docs {
   color: #888;
+} */
+
+/* The following two are to get the buttons at the bottom
+    of the dialog to be on the same line */
+#AlignmentDialogWrapper > div > div > div {
+    display: flex;
 }
-/*---------------------------------------------------------------------------------------------
+#AlignmentDialogWrapper > div > div > div > button {
+    margin-right: 10px; 
+}
+
+
+/*This is to get the text in the alignment grid to be black */
+#AlignmentDialogWrapper #AlignmentGrid > div > div > div > div:nth-child(2) {
+    color: black;
+}
+/* and the wordList needs black text */
+#AlignmentDialogWrapper #wordList {
+    color: black;
+}
+
+/* Make a white background which is full screen using the div
+named AlignmentDialogWrapper */
+#AlignmentDialogWrapper {
+    background-color: white;
+    width: 100%;
+}/*---------------------------------------------------------------------------------------------
  *  Copyright (c) Microsoft Corporation. All rights reserved.
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/

@@ -1,4 +1,9 @@
 import React, { useEffect } from 'react';
+//@ts-ignore
+import { SuggestingWordAligner, TAlignerData, TReference, TSourceTargetAlignment, TWord } from 'suggesting-word-aligner-rcl';
+
+//import css
+import './AlignmentDialogWrapper.css';
 
 interface AlignmentDialogWrapperProps {
     reference: string;
@@ -32,19 +37,6 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
 
     const [alignmentData, setAlignmentData] = React.useState<any>({});
 
-    async function getFirstValidFile( filenames: string[] ) : Promise<string | undefined> {
-        for( const filename of filenames ){
-            try{
-                let fileContent = await getFile( filename );
-                if( fileContent ){
-                    return fileContent;
-                }
-            }catch{
-                //ignore
-            }
-        }
-        return undefined;
-    }
 
     async function figureAlignmentData(){
         let alignmentData = await getAlignmentData(reference);
@@ -55,29 +47,51 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
         figureAlignmentData();
     },[reference]);
 
+    const height = 500;
 
-    //const [smallFile, setSmallFile] = React.useState<string>("");
-    // async function getSmallFile(){
-    //     console.log( "requesting smallFile." );
-    //     let fileContent = await getFile("./bob.txt");
-    //     console.log( "received smallFile. " + fileContent );
-    //     if( fileContent ){
-    //         setSmallFile(fileContent);
-    //     }
-    // }
-    // if( smallFile === "" ){ 
-    //     getSmallFile(); 
-    // }else{
-    //     console.log( "Have smallFile. " + smallFile );
-    // }
+    const translate = (text: string) => {
+        if( text === "" ){
+            return "";
+        }
+        return text;
+    }
+
+    const showPopover = () =>{
+        return false;
+    }
+
+    const onAlignmentChange = (alignmentData: TAlignerData) => {
+        console.log( "AlignmentData: " + alignmentData );
+    }
+
+    console.log( "About to render Alignment dialog wrapper" );
 
     return (
-        <div>
+        <div id="AlignmentDialogWrapper">
             <p>Alignment dialog wrapper</p>
-            <p>{reference}</p>
-
+            {Object.keys(alignmentData || {}).length === 0 ? (
+                // Show loading message if alignments are an empty dictionary
+                <p>Loading...</p>
+            ) : (
+                // Render the SuggestingWordAligner component if alignments are not empty
+                <SuggestingWordAligner
+                    style={{ maxHeight: `${height}px`, overflowY: 'auto' }}
+                    verseAlignments={alignmentData?.alignments || null}
+                    targetWords={alignmentData?.wordBank || null}
+                    translate={translate}
+                    contextId={{ reference: reference }}
+                    targetLanguage={"xxx"}
+                    targetLanguageFont={''}
+                    sourceLanguage={"yyy"}
+                    showPopover={showPopover}
+                    lexicons={{}}
+                    loadLexiconEntry={(_arg:any) => { return {} }}
+                    onChange={onAlignmentChange}
+                    suggester={undefined}
+                />
+            )}
         </div>
-    )
+    );
 }
 
 

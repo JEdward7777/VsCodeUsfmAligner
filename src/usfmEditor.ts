@@ -212,14 +212,27 @@ function perfContentToTWord( perfContent: any ){
     const word : { [key: string]: any } = {};
     if ("x-occurrence"  in perfContent?.atts) { word["occurrence" ] = perfContent.atts["x-occurrence" ].join(" "); }
     if ("x-occurrences" in perfContent?.atts) { word["occurrences"] = perfContent.atts["x-occurrences"].join(" "); }
-    if ("x-content"     in perfContent?.atts) { word["word"       ] = perfContent.atts["x-content"    ].join(" "); }
-    if ("content"       in perfContent      ) { word["word"       ] = perfContent.content              .join(" "); }
+    if ("x-content"     in perfContent?.atts) { word["text"       ] = perfContent.atts["x-content"    ].join(" "); }
+    if ("content"       in perfContent      ) { word["text"       ] = perfContent.content              .join(" "); }
     if ("x-lemma"       in perfContent?.atts) { word["lemma"      ] = perfContent.atts["x-lemma"      ].join(" "); }
     if ("lemma"         in perfContent?.atts) { word["lemma"      ] = perfContent.atts["lemma"        ].join(" "); }
     if ("x-morph"       in perfContent?.atts) { word["morph"      ] = perfContent.atts["x-morph"      ].join(","); }
     if ("x-strong"      in perfContent?.atts) { word["strong"     ] = perfContent.atts["x-strong"     ].join(" "); }
     if ("strong"        in perfContent?.atts) { word["strong"     ] = perfContent.atts["strong"       ].join(" "); }
     return word;
+}
+
+function computeOccurrenceInformationInPlace( words: any[] ){
+    const occurrenceMap = new Map<string, number>();
+    for( const word of words ){
+        const occurrence = (occurrenceMap.get( word.text ) || 0) + 1;
+        occurrenceMap.set( word.text, occurrence );
+        word.occurrence = occurrence;
+    }
+    for( const word of words ){
+        word.occurrences = occurrenceMap.get( word.text );
+    }
+    return words;
 }
 
 function extractWrappedWordsFromPerfVerse( perfVerse: any ): any[] {
@@ -231,6 +244,12 @@ function extractWrappedWordsFromPerfVerse( perfVerse: any ): any[] {
         }else if( content.type == "wrapper" && content.subtype == "usfm:w" ){
             wrappedWords.push( perfContentToTWord( content) );
         }
+    }
+    //recompute occurrence information if it doesn't exist.
+    if( wrappedWords.length > 0 && !wrappedWords[0].occurrence ){
+        computeOccurrenceInformationInPlace( wrappedWords );
+    }else{
+        console.log( "Wrapped words already have occurrence information." );
     }
     return wrappedWords;
 }
@@ -263,6 +282,48 @@ function extractAlignmentsFromPerfVerse( perfVerse: any ): any[] {
     return alignments;
 }
 
+function hashWordToString( word: any ){
+    return `${word.text}-${word.occurrence}`;
+}
+
+function sortAndSupplementFromSourceWords( sourceWords:any, alignments:any ){
+    //create a hash of sourceWords to give each word hash a index of its position
+    const sourceWordHashToIndex = Object.fromEntries( sourceWords.map( ( word : any, index : any ) => {
+        return [ hashWordToString( word ), index ];
+    }));
+    //now hash all the sources to indicate which ones are represented so we can add the ones which are not.
+    const sourceWordHashToExistsBool = alignments.reduce( (acc:any, cur:any) => {
+        cur.sourceNgram.forEach( ( word :any  ) => {
+            acc[ hashWordToString( word ) ] = true;
+        });
+        return acc;
+    }, {});
+
+    //now create an array of the sourceWords which are not represented.
+    const newSourceWords = sourceWords.filter( ( word : any ) => {
+        return !( hashWordToString( word ) in sourceWordHashToExistsBool );
+    })
+
+    //now create bogus alignments for the new source words.
+    const newAlignments = newSourceWords.map( ( word : any ) => {
+        //return a bogus alignment
+        return {
+            sourceNgram: [ word ],
+            targetNgram: []
+        }
+    });
+
+    //Now create a new list which has both the new alignments and the old alignments
+    const combinedAlignments = alignments.concat( newAlignments );
+    
+    //now sort the alignment based on the sourceWordHashToIndex.
+    const sortedAlignments = combinedAlignments.sort( ( a : any, b : any ) => {
+        return sourceWordHashToIndex[ hashWordToString( a.sourceNgram[0] ) ] - sourceWordHashToIndex[ hashWordToString( b.sourceNgram[0] ) ];
+    });
+
+    return sortedAlignments;
+}
+
 async function getAlignmentData( filename: string, data: InternalUsfmJsonFormat, reference: string ): Promise< any | undefined >{
     if( !reference ) return undefined;
 
@@ -293,12 +354,16 @@ async function getAlignmentData( filename: string, data: InternalUsfmJsonFormat,
     const sourceVerse = pullVerseFromPerf( reference, sourceUsfmPerf );
     const mergedVerse = pullVerseFromPerf( reference, mergedPerf     );
 
-    const wordBank = extractWrappedWordsFromPerfVerse( sourceVerse );
+    const sourceWords = extractWrappedWordsFromPerfVerse( sourceVerse );
+    const targetWords = extractWrappedWordsFromPerfVerse( mergedVerse );
+
     const alignments = extractAlignmentsFromPerfVerse( mergedVerse );
+
+    const supplementedAlignments = sortAndSupplementFromSourceWords( sourceWords, alignments );
     
     console.log( "Checkpoint" );
 
-    return {wordBank, alignments};
+    return {wordBank: targetWords, alignments: supplementedAlignments};
 }
 
 
