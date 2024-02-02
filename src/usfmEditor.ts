@@ -793,7 +793,11 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
                     command: 'sync',
                     content: document.documentData,
                 };
-                webviewPanel.webview.postMessage(updateMessage);
+                try{
+                    webviewPanel.webview.postMessage(updateMessage);
+                }catch{
+                    //ignore
+                }
 			}
 		}));
 
@@ -931,7 +935,11 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
             const flushUpdateCommand : UsfmMessage = {
                 command: 'flushUpdates'
             };
-            await this.postMessageWithResponse( webviewPanel, flushUpdateCommand );
+            try{
+                await this.postMessageWithResponse( webviewPanel, flushUpdateCommand );
+            }catch{
+                //ignore
+            }
         }
         return Promise.resolve();
     }
@@ -962,10 +970,14 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
         //Find if there is a webview already looking at this reference.
         let foundView = false;
         for( const webviewPanel of this.webviews.get(documentUri) ){
-            const activeView = await this.getActiveViewName( webviewPanel );
-            if( activeView === "view_stripped_usfm" ){
-                foundView = true;
-                webviewPanel.webview.postMessage(selectReferenceCommand);
+            try{
+                const activeView = await this.getActiveViewName( webviewPanel );
+                if( activeView === "view_stripped_usfm" ){
+                    foundView = true;
+                    webviewPanel.webview.postMessage(selectReferenceCommand);
+                }
+            }catch{
+                //ignore
             }
         }
         
@@ -973,8 +985,12 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
         //Then we will just send it to the first one to pop it over.
         if( !foundView ){
             for( const webviewPanel of this.webviews.get(documentUri) ){
-                webviewPanel.webview.postMessage(selectReferenceCommand);
-                break;
+                try{
+                    webviewPanel.webview.postMessage(selectReferenceCommand);
+                    break;
+                }catch{
+                    //ignore
+                }
             }
         }
     }
@@ -988,10 +1004,14 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
         //Find if there is a webview already looking at this reference.
         let foundView = false;
         for( const webviewPanel of this.webviews.get(documentUri) ){
-            const activeView = await this.getActiveViewName( webviewPanel );
-            if( activeView === "view_align_usfm" ){
-                foundView = true;
-                webviewPanel.webview.postMessage(alignReferenceCommand);
+            try{
+                const activeView = await this.getActiveViewName( webviewPanel );
+                if( activeView === "view_align_usfm" ){
+                    foundView = true;
+                    webviewPanel.webview.postMessage(alignReferenceCommand);
+                }
+            }catch{
+                //ignore
             }
         }
         
@@ -999,8 +1019,12 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
         //Then we will just send it to the first one to pop it over.
         if( !foundView ){
             for( const webviewPanel of this.webviews.get(documentUri) ){
-                webviewPanel.webview.postMessage(alignReferenceCommand);
-                break;
+                try{
+                    webviewPanel.webview.postMessage(alignReferenceCommand);
+                    break;
+                }catch{
+                    //ignore
+                }
             }
         }
     }
