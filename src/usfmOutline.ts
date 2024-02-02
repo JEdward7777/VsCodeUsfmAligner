@@ -7,8 +7,8 @@ export interface UsfmDocumentAbstraction extends vscode.CustomDocument{
 export interface UsfmEditorAbstraction {
     onUsfmActiveEditorChanged: vscode.Event<UsfmDocumentAbstraction>;
     onUsfmDocumentChanged(callback: (e: vscode.CustomDocumentEditEvent<UsfmDocumentAbstraction>) => void): void;
-    selectReference( reference: string ): void;
-    alignReference( reference: string ): void;
+    selectReference( reference: string, documentUri: vscode.Uri ): void;
+    alignReference( reference: string, documentUri: vscode.Uri ): void;
 }
 
 interface VerseIndex{
@@ -33,6 +33,8 @@ export class UsfmOutlineProvider implements vscode.TreeDataProvider< string > {
 	private autoRefresh = true;
 
     private bookName: string  = "";
+
+    private documentUri: vscode.Uri | undefined;
 
 	constructor(private context: vscode.ExtensionContext, private editorProvider: UsfmEditorAbstraction) {
 
@@ -139,6 +141,13 @@ export class UsfmOutlineProvider implements vscode.TreeDataProvider< string > {
                 this.bookName = "";
             }
 
+            //also snag the uri.
+            this.documentUri = document.uri;
+
+        }else{
+            this.index = [];
+            this.bookName = "";
+            this.documentUri = undefined;
         }
 	}
 
@@ -216,14 +225,16 @@ export class UsfmOutlineProvider implements vscode.TreeDataProvider< string > {
 
     selectReference( location: string ): void {
         if( location === undefined ){ return; }
+        if( this.documentUri === undefined ){ return; }
 
-        this.editorProvider.selectReference( location );
+        this.editorProvider.selectReference( location, this.documentUri );
     }
 
     alignReference( location: string ): void {
         if( location === undefined ){ return; }
+        if( this.documentUri === undefined ){ return; }
 
-        this.editorProvider.alignReference( location );
+        this.editorProvider.alignReference( location, this.documentUri );
     }
 
 
