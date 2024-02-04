@@ -210,44 +210,54 @@ function pullVerseFromPerf( reference: string, perf: any ): any {
 
 function perfContentToTWord( perfContent: any ){
     const word : { [key: string]: any } = {};
-    if ("x-occurrence"  in perfContent?.atts) { word["occurrence" ] = perfContent.atts["x-occurrence" ].join(" "); }
-    if ("x-occurrences" in perfContent?.atts) { word["occurrences"] = perfContent.atts["x-occurrences"].join(" "); }
-    if ("x-content"     in perfContent?.atts) { word["text"       ] = perfContent.atts["x-content"    ].join(" "); }
-    if ("content"       in perfContent      ) { word["text"       ] = perfContent.content              .join(" "); }
-    if ("x-lemma"       in perfContent?.atts) { word["lemma"      ] = perfContent.atts["x-lemma"      ].join(" "); }
-    if ("lemma"         in perfContent?.atts) { word["lemma"      ] = perfContent.atts["lemma"        ].join(" "); }
-    if ("x-morph"       in perfContent?.atts) { word["morph"      ] = perfContent.atts["x-morph"      ].join(","); }
-    if ("x-strong"      in perfContent?.atts) { word["strong"     ] = perfContent.atts["x-strong"     ].join(" "); }
-    if ("strong"        in perfContent?.atts) { word["strong"     ] = perfContent.atts["strong"       ].join(" "); }
+
+     if (perfContent?.atts?.["x-occurrence" ] ) { word["occurrence" ] = perfContent.atts["x-occurrence" ].join(" "); }
+     if (perfContent?.atts?.["x-occurrences"] ) { word["occurrences"] = perfContent.atts["x-occurrences"].join(" "); }
+     if (perfContent?.atts?.["x-content"    ] ) { word["text"       ] = perfContent.atts["x-content"    ].join(" "); }
+     if (perfContent?.      ["content"      ] ) { word["text"       ] = perfContent.content              .join(" "); }
+     if (perfContent?.atts?.["x-lemma"      ] ) { word["lemma"      ] = perfContent.atts["x-lemma"      ].join(" "); }
+     if (perfContent?.atts?.["lemma"        ] ) { word["lemma"      ] = perfContent.atts["lemma"        ].join(" "); }
+     if (perfContent?.atts?.["x-morph"      ] ) { word["morph"      ] = perfContent.atts["x-morph"      ].join(","); }
+     if (perfContent?.atts?.["x-strong"     ] ) { word["strong"     ] = perfContent.atts["x-strong"     ].join(" "); }
+     if (perfContent?.atts?.["strong"       ] ) { word["strong"     ] = perfContent.atts["strong"       ].join(" "); }
     return word;
 }
 
-function computeOccurrenceInformationInPlace( words: any[] ){
+function computeOccurrenceInformation( words: any[] ){
+    const wordsCopy = deepCopy( words );
     const occurrenceMap = new Map<string, number>();
-    for( const word of words ){
+    for( const word of wordsCopy ){
         const occurrence = (occurrenceMap.get( word.text ) || 0) + 1;
         occurrenceMap.set( word.text, occurrence );
         word.occurrence = occurrence;
     }
-    for( const word of words ){
+    for( const word of wordsCopy ){
         word.occurrences = occurrenceMap.get( word.text );
     }
-    return words;
+    return wordsCopy;
 }
 
-function extractWrappedWordsFromPerfVerse( perfVerse: any ): any[] {
-    const wrappedWords : any[] = [];
+function extractWrappedWordsFromPerfVerse( perfVerse: any, reindexOccurrences: boolean = false ): any[] {
+    let wrappedWords : any[] = [];
+    let inMapping = false;
     for( const content of perfVerse ){
         //If content is a string just skip it.  It is like commas and stuff.
         if( typeof content == 'string' ){
             //pass
         }else if( content.type == "wrapper" && content.subtype == "usfm:w" ){
-            wrappedWords.push( perfContentToTWord( content) );
+            const wrappedWord = perfContentToTWord( content );
+            wrappedWord.disabled = inMapping; //If the word is mapped then disable it for the wordBank.
+            wrappedWords.push( wrappedWord );
+        }else if( content.type == "start_milestone" && content.subtype == "usfm:zaln" ){
+            inMapping = true;
+        }else if( content.type == "end_milestone" && content.subtype == "usfm:zaln" ){
+            //I know the end_milestone can come in clumps, but this works anyways.
+            inMapping = false;
         }
     }
     //recompute occurrence information if it doesn't exist.
-    if( wrappedWords.length > 0 && !wrappedWords[0].occurrence ){
-        computeOccurrenceInformationInPlace( wrappedWords );
+    if( wrappedWords.length > 0 && (!wrappedWords[0].occurrence || reindexOccurrences) ){
+        wrappedWords = computeOccurrenceInformation( wrappedWords );
     }else{
         console.log( "Wrapped words already have occurrence information." );
     }
@@ -262,6 +272,9 @@ function extractAlignmentsFromPerfVerse( perfVerse: any ): any[] {
 
         if( content.type == "start_milestone" && content.subtype == "usfm:zaln" ){
             sourceStack.push( content );
+            //If there are any target words then just drop them because they aren't part of this
+            //group.
+            targetStack.length = 0;
         }else if( content.type == "end_milestone" && content.subtype == "usfm:zaln" ){
             //process the source and target stacks when we are a place where we are popping
             if( targetStack.length > 0 ){
@@ -324,6 +337,30 @@ function sortAndSupplementFromSourceWords( sourceWords:any, alignments:any ){
     return sortedAlignments;
 }
 
+function reindexPerfVerse( perfVerse: any ): any {
+    const perfVerseCopy = deepCopy( perfVerse );
+    const occurrenceMap = new Map<string, number>();
+    for( const perfContent of perfVerseCopy ){
+        if( perfContent.hasOwnProperty("type") && perfContent.type == "wrapper" && 
+        perfContent.hasOwnProperty("subtype") && perfContent.subtype == "usfm:w" ){
+            const text = (perfContent?.["content"])?perfContent.content.join(" "):"";
+            const occurrence = (occurrenceMap.get( text ) || 0) + 1;
+            occurrenceMap.set( text, occurrence );
+            if( !perfContent.atts ) perfContent.atts = {};
+            perfContent.atts["x-occurrence" ] = [ "" + occurrence ];
+        }
+    }
+    for( const perfContent of perfVerseCopy ){
+        if( perfContent.hasOwnProperty("type") && perfContent.type == "wrapper" && 
+        perfContent.hasOwnProperty("subtype") && perfContent.subtype == "usfm:w" ){
+            const text = (perfContent?.["content"])?perfContent.content.join(" "):"";
+            if( !perfContent.atts ) perfContent.atts = {};
+            perfContent.atts["x-occurrences" ] = [ "" + occurrenceMap.get( text ) ];
+        }
+    }
+    return perfVerseCopy;
+}
+
 async function getAlignmentData( filename: string, data: InternalUsfmJsonFormat, reference: string ): Promise< any | undefined >{
     if( !reference ) return undefined;
 
@@ -352,7 +389,10 @@ async function getAlignmentData( filename: string, data: InternalUsfmJsonFormat,
     if( !mergedPerf ) return undefined;
 
     const sourceVerse = pullVerseFromPerf( reference, sourceUsfmPerf );
-    const mergedVerse = pullVerseFromPerf( reference, mergedPerf     );
+    const mergedVerseNotReindexed = pullVerseFromPerf( reference, mergedPerf     );
+    const mergedVerse = reindexPerfVerse( mergedVerseNotReindexed );
+
+    
 
     const sourceWords = extractWrappedWordsFromPerfVerse( sourceVerse );
     const targetWords = extractWrappedWordsFromPerfVerse( mergedVerse );
