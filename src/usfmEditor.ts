@@ -240,6 +240,7 @@ function computeOccurrenceInformation( words: any[] ){
 function extractWrappedWordsFromPerfVerse( perfVerse: any, reindexOccurrences: boolean = false ): any[] {
     let wrappedWords : any[] = [];
     let inMapping = false;
+    let index = 0;
     for( const content of perfVerse ){
         //If content is a string just skip it.  It is like commas and stuff.
         if( typeof content == 'string' ){
@@ -247,6 +248,7 @@ function extractWrappedWordsFromPerfVerse( perfVerse: any, reindexOccurrences: b
         }else if( content.type == "wrapper" && content.subtype == "usfm:w" ){
             const wrappedWord = perfContentToTWord( content );
             wrappedWord.disabled = inMapping; //If the word is mapped then disable it for the wordBank.
+            wrappedWord.index = index++;
             wrappedWords.push( wrappedWord );
         }else if( content.type == "start_milestone" && content.subtype == "usfm:zaln" ){
             inMapping = true;
@@ -268,18 +270,22 @@ function extractAlignmentsFromPerfVerse( perfVerse: any ): any[] {
     const alignments : any[] = [];
     const sourceStack : any[] = [];
     const targetStack : any[] = [];
+    let targetIndex = 0;
     for( const content of perfVerse ){
 
         if( content.type == "start_milestone" && content.subtype == "usfm:zaln" ){
-            sourceStack.push( content );
+            //we can't index the source words right now because they are out of order.
+            //we will do it later when the alignments are supplemented with the unused source words.
+            sourceStack.push( perfContentToTWord(content) );
+
             //If there are any target words then just drop them because they aren't part of this
             //group.
             targetStack.length = 0;
         }else if( content.type == "end_milestone" && content.subtype == "usfm:zaln" ){
             //process the source and target stacks when we are a place where we are popping
             if( targetStack.length > 0 ){
-                const sourceNgram = sourceStack.map( perfContentToTWord );
-                const targetNgram = targetStack.map( perfContentToTWord );
+                const sourceNgram = [...sourceStack];
+                const targetNgram = [...targetStack];
 
                 alignments.push( { sourceNgram, targetNgram } );
 
@@ -289,7 +295,9 @@ function extractAlignmentsFromPerfVerse( perfVerse: any ): any[] {
 
             sourceStack.pop();
         }else if( content.type == "wrapper" && content.subtype == "usfm:w" ){
-            targetStack.push( content );
+            const wrappedWord = perfContentToTWord( content );
+            wrappedWord.index = targetIndex++;
+            targetStack.push( wrappedWord );
         }
     }
     return alignments;
@@ -300,9 +308,9 @@ function hashWordToString( word: any ){
 }
 
 function sortAndSupplementFromSourceWords( sourceWords:any, alignments:any ){
-    //create a hash of sourceWords to give each word hash a index of its position
-    const sourceWordHashToIndex = Object.fromEntries( sourceWords.map( ( word : any, index : any ) => {
-        return [ hashWordToString( word ), index ];
+    //Hash the source word list so that we can find them when going through the alignment source words.
+    const sourceWordHashToSourceWord = Object.fromEntries( sourceWords.map( ( word : any ) => {
+        return [ hashWordToString( word ), word ];
     }));
     //now hash all the sources to indicate which ones are represented so we can add the ones which are not.
     const sourceWordHashToExistsBool = alignments.reduce( (acc:any, cur:any) => {
@@ -328,13 +336,35 @@ function sortAndSupplementFromSourceWords( sourceWords:any, alignments:any ){
 
     //Now create a new list which has both the new alignments and the old alignments
     const combinedAlignments = alignments.concat( newAlignments );
+
+    //Get the index set on all the source words in the alignment.
+    const sourceIndexedAlignments = combinedAlignments.map( ( alignment : any, index : number ) => {
+        const indexedSourceNgram = alignment.sourceNgram.map( ( sourceWord : any ) => {
+            return {
+                ...sourceWord,
+                index: sourceWordHashToSourceWord[ hashWordToString( sourceWord  )  ]?.index ?? -1
+            }
+        });
+        return {
+            ...alignment,
+            sourceNgram: indexedSourceNgram
+        };
+    });
     
-    //now sort the alignment based on the sourceWordHashToIndex.
-    const sortedAlignments = combinedAlignments.sort( ( a : any, b : any ) => {
-        return sourceWordHashToIndex[ hashWordToString( a.sourceNgram[0] ) ] - sourceWordHashToIndex[ hashWordToString( b.sourceNgram[0] ) ];
+    //now sort the alignment based on index of the first source word.
+    sourceIndexedAlignments.sort( ( a : any, b : any ) => {
+        return a.sourceNgram[0].index - b.sourceNgram[0].index;
     });
 
-    return sortedAlignments;
+    //now give each alignment an index.
+    const indexedAlignments = sourceIndexedAlignments.map( ( alignment : any, index : number ) => {
+        return {
+            ...alignment,
+            index
+        };
+    });
+
+    return indexedAlignments;
 }
 
 function reindexPerfVerse( perfVerse: any ): any {
