@@ -22,18 +22,18 @@ interface UsfmMessage{
     command: string,
     content?: InternalUsfmJsonFormat,
     requestId?: number,
-    commandArg?: string,
+    commandArg?: any,
     response?: any,
     error?: any,
-}
+  }
 
 export function disposeAll(disposables: vscode.Disposable[]): void {
-	while (disposables.length) {
-		const item = disposables.pop();
-		if (item) {
-			item.dispose();
-		}
-	}
+    while (disposables.length) {
+        const item = disposables.pop();
+        if (item) {
+            item.dispose();
+        }
+    }
 }
 
 function deepCopy(obj: any): any {
@@ -41,32 +41,32 @@ function deepCopy(obj: any): any {
 }
 
 export abstract class Disposable {
-	private _isDisposed = false;
+    private _isDisposed = false;
 
-	protected _disposables: vscode.Disposable[] = [];
+    protected _disposables: vscode.Disposable[] = [];
 
     public isClosed = false;
 
-	public dispose(): any {
-		if (this._isDisposed) {
-			return;
-		}
-		this._isDisposed = true;
-		disposeAll(this._disposables);
-	}
+    public dispose(): any {
+        if (this._isDisposed) {
+            return;
+        }
+        this._isDisposed = true;
+        disposeAll(this._disposables);
+    }
 
-	protected _register<T extends vscode.Disposable>(value: T): T {
-		if (this._isDisposed) {
-			value.dispose();
-		} else {
-			this._disposables.push(value);
-		}
-		return value;
-	}
+    protected _register<T extends vscode.Disposable>(value: T): T {
+        if (this._isDisposed) {
+            value.dispose();
+        } else {
+            this._disposables.push(value);
+        }
+        return value;
+    }
 
-	protected get isDisposed(): boolean {
-		return this._isDisposed;
-	}
+    protected get isDisposed(): boolean {
+        return this._isDisposed;
+    }
 }
 
 function computeSourceFilenames(filename: string, sourceMap: { [key: string]: string[] }): string[] {
@@ -208,6 +208,76 @@ function pullVerseFromPerf( reference: string, perf: any ): any {
     return collectedContent;
 }
 
+function replacePerfVerseInPerf( perf :any, perfVerse: any, reference : string ){
+    if( !reference ) return undefined;
+    
+    const referenceParts = reference.split(":");
+
+    if( referenceParts.length != 2 ) return undefined;
+
+    const chapter : string = referenceParts[0];
+    const verse : string = referenceParts[1];
+
+
+    let currentChapter : string = "-1";
+    let currentVerse : string = "-1";
+
+    const newMainSequenceBlocks : any[] = [];
+
+    //iterate the chapters.
+    for( const block of perf.sequences[perf.main_sequence_id].blocks ){
+        if( block.type == 'paragraph' ){
+            const newContent = [];
+            for( const content of block.content ){
+                let dropContent  = false;
+                let pushNewVerse = false;
+                if( content.type == 'mark' ){
+                    if( content.subtype == 'chapter' ){
+                        currentChapter = content.atts.number;
+                    }else if( content.subtype == 'verses' ){
+                        currentVerse = content.atts.number;
+
+                        //if the chapter and verse are correct, then dump the inserted content in.
+                        if( currentChapter == chapter && currentVerse == verse ){
+                            //I set a flag here instead of just push it because
+                            //the content has to be pushed after the verse indicator
+                            pushNewVerse = true;
+                        }   
+                    }
+                }else{
+                    //if we are in the existing verse, then drop all existing content
+                    //so that the inserted content is not doubled.
+                    if( currentChapter == chapter && currentVerse == verse ){
+                        dropContent = true;
+                    }
+                }
+                if( !dropContent ){ newContent.push(    content   );}
+                if( pushNewVerse ){ newContent.push( ...perfVerse );}
+            }
+            newMainSequenceBlocks.push( {
+                ...block,
+                content: newContent
+            });
+        }else{
+            newMainSequenceBlocks.push( block );
+        }
+    }
+
+    const newPerf = {
+        ...perf,
+        sequences: {
+            ...perf.sequences,
+            [perf.main_sequence_id]: {
+                ...perf.sequences[perf.main_sequence_id],
+                blocks: newMainSequenceBlocks
+            }
+        }
+    };
+
+    return newPerf;
+}
+
+
 function perfContentToTWord( perfContent: any ){
     const word : { [key: string]: any } = {};
 
@@ -222,6 +292,7 @@ function perfContentToTWord( perfContent: any ){
      if (perfContent?.atts?.["strong"       ] ) { word["strong"     ] = perfContent.atts["strong"       ].join(" "); }
     return word;
 }
+
 
 function computeOccurrenceInformation( words: any[] ){
     const wordsCopy = deepCopy( words );
@@ -305,6 +376,10 @@ function extractAlignmentsFromPerfVerse( perfVerse: any ): any[] {
 
 function hashWordToString( word: any ){
     return `${word.text}-${word.occurrence}`;
+}
+
+function hashNgramToString( ngram: any[] ){
+    return ngram?.map( ( word: any ) => hashWordToString( word ) )?.join("/");
 }
 
 function sortAndSupplementFromSourceWords( sourceWords:any, alignments:any ){
@@ -391,11 +466,170 @@ function reindexPerfVerse( perfVerse: any ): any {
     return perfVerseCopy;
 }
 
+
+async function mergeAlignmentPerf( strippedUsfmPerf: any, strippedAlignment: any ){
+    try{
+        const pipelineH = new PipelineHandler({proskomma: new Proskomma()});
+        const mergeAlignmentPipeline_output = await pipelineH.runPipeline('mergeAlignmentPipeline', {
+            perf: strippedUsfmPerf,
+            strippedAlignment,
+        });
+        return mergeAlignmentPipeline_output.perf;
+    }catch( e ){
+        console.log( e );
+    }
+    return undefined;
+}
+
+function replaceAlignmentsInPerfVerse( perfVerse: any, newAlignments: any ): any[]{
+    const result : any[] = [];
+
+    const withoutOldAlignments = perfVerse.filter( ( perfContent : any ) => {
+        if( perfContent.hasOwnProperty("type") && 
+        (perfContent.type == "start_milestone" || perfContent.type == "end_milestone") &&
+        perfContent.hasOwnProperty("subtype") && perfContent.subtype == "usfm:zaln" ){
+            return false;
+        }
+        return true;
+    });
+
+    //this indicates what the current source alignment stack is so we know when it needs to change.
+    let currentSourceAlignmentHash = "";
+    let currentSourceAlignmentLength = 0;
+
+    //hash each of the target words to the alignment which contains them.
+    const targetWordHashToAlignment = new Map<string, any>();
+    for( const alignment of newAlignments ){
+        for( const targetWord of alignment.targetNgram ){
+            targetWordHashToAlignment.set( hashWordToString( targetWord ), alignment );
+        }
+    }
+
+    const closeSourceRange = () => {
+        //we can just put it at the end but we will instead look backwards and find the last place
+        //a word wrapper is and put it after that.
+        let lastWordIndex = result.length - 1;
+        while( lastWordIndex >= 0 && 
+         !(result[lastWordIndex].hasOwnProperty("type"   ) && result[lastWordIndex].type    == "wrapper" && 
+           result[lastWordIndex].hasOwnProperty("subtype") && result[lastWordIndex].subtype == "usfm:w") ){
+            lastWordIndex--;
+        }
+
+        //take out the old source alignment
+        //by inserting in after lastWordIndex
+        for( let i = 0; i < currentSourceAlignmentLength; i++ ){
+            const newEndMilestone : any = { 
+                type: "end_milestone", 
+                subtype: "usfm:zaln"
+            }
+            result.splice( lastWordIndex + i + 1, 0, newEndMilestone );
+        }
+    };
+
+    for( const perfContent of withoutOldAlignments ){
+        //Only do something different if it is a wrapped word.
+        if( perfContent.hasOwnProperty("type") && perfContent.type == "wrapper" && 
+        perfContent.hasOwnProperty("subtype") && perfContent.subtype == "usfm:w" ){
+            
+            const relevantAlignment = targetWordHashToAlignment.get( hashWordToString( perfContentToTWord( perfContent ) ) );
+
+            //If the current currentSourceAlignmentHash is not correct and it is set we need to close it out.
+            if( currentSourceAlignmentHash != (hashNgramToString(relevantAlignment?.sourceNgram) ?? "") ){
+                closeSourceRange();
+
+                //add in the new alignment.
+                if( relevantAlignment ){
+                    for( const sourceToken of relevantAlignment.sourceNgram ){
+                        const newStartMilestone : any= {
+                            type: "start_milestone",
+                            subtype: "usfm:zaln",
+                            atts: {}
+                        }
+                        if( sourceToken.hasOwnProperty("lemma"      ) ){ newStartMilestone.atts["x-lemma"       ] = [ "" + sourceToken.lemma          ]; }
+                        if( sourceToken.hasOwnProperty("morph"      ) ){ newStartMilestone.atts["x-morph"       ] =        sourceToken.morph.split(","); }
+                        if( sourceToken.hasOwnProperty("occurrence" ) ){ newStartMilestone.atts["x-occurrence"  ] = [ "" + sourceToken.occurrence     ]; }
+                        if( sourceToken.hasOwnProperty("occurrences") ){ newStartMilestone.atts["x-occurrences" ] = [ "" + sourceToken.occurrences    ]; }
+                        if( sourceToken.hasOwnProperty("strong"     ) ){ newStartMilestone.atts["x-strong"      ] = [ "" + sourceToken.strong         ]; }
+                        if( sourceToken.hasOwnProperty("text"       ) ){ newStartMilestone.atts["x-content"     ] = [ "" + sourceToken.text           ]; }
+                        result.push( newStartMilestone );
+                    }
+                    currentSourceAlignmentHash = hashNgramToString(relevantAlignment.sourceNgram);
+                    currentSourceAlignmentLength = relevantAlignment.sourceNgram.length;
+                }else{
+                    currentSourceAlignmentHash = "";
+                    currentSourceAlignmentLength = 0;
+                }
+            }
+        }
+
+        result.push( perfContent );
+    }
+
+
+    //now close out any remaining source alignment.
+    closeSourceRange();
+    currentSourceAlignmentHash = "";
+    currentSourceAlignmentLength = 0;
+
+    //Note, this will not work correctly if the alignment spans multiple verses.  But we have issues otherwise if this is the case.
+
+    return result;
+}
+
+
+
+async function setAlignmentData( filename: string, data: InternalUsfmJsonFormat, args: { reference: string, newAlignments: any } ): Promise<void>{
+    if( !args.reference ) return undefined;
+
+
+    let mergedPerf = await mergeAlignmentPerf( usfmToPerf( data.strippedUsfm.text ), data.alignmentData.perf );
+    if( !mergedPerf ) return undefined;
+
+
+    const targetPerfVerse = pullVerseFromPerf( args.reference, mergedPerf );
+
+    const targetPerfVerseReindex = reindexPerfVerse( targetPerfVerse );
+
+    const updatedTargetPerfVerse = replaceAlignmentsInPerfVerse( targetPerfVerseReindex, args.newAlignments );
+
+
+    const updatedMergedPerf = replacePerfVerseInPerf( mergedPerf, updatedTargetPerfVerse, args.reference );
+
+
+    //Now need to create the new alignment structure by splitting the merged perf between content and alignments.
+    const pipelIneH = new PipelineHandler({proskomma: new Proskomma()});
+    const stripAlignmentPipeline_outputs = pipelIneH.runPipeline("stripAlignmentPipeline", {
+        perf: updatedMergedPerf
+    });
+
+    const strippedAlign = stripAlignmentPipeline_outputs.strippedAlignment;
+
+
+
+    //Here double check real quick what it looks like if I remerge it real fast.
+    const pipelineH = new PipelineHandler({proskomma: new Proskomma()});
+    const mergeAlignmentPipeline_output = await pipelineH.runPipeline('mergeAlignmentPipeline', {
+        perf: usfmToPerf( data.strippedUsfm.text ),
+        strippedAlignment: strippedAlign,
+    });
+    const remergedPerf = mergeAlignmentPipeline_output.perf;
+
+    //See what happens if I use the stripped perf which just came out of the transform.
+    const pipelineH2 = new PipelineHandler({proskomma: new Proskomma()});
+    const mergeAlignmentPipeline_output2 = await pipelineH2.runPipeline('mergeAlignmentPipeline', {
+        perf: stripAlignmentPipeline_outputs.perf,
+        strippedAlignment: strippedAlign,
+    });
+    const remergedPerf2 = mergeAlignmentPipeline_output2.perf;
+
+
+    return strippedAlign;
+}
+
 async function getAlignmentData( filename: string, data: InternalUsfmJsonFormat, reference: string ): Promise< any | undefined >{
     if( !reference ) return undefined;
 
     const sourceUsfm = await getSourceFileForTargetFile( filename );
-
     if( !sourceUsfm ) return undefined;
 
     const sourceUsfmPerf = usfmToPerf( sourceUsfm );
@@ -404,18 +638,7 @@ async function getAlignmentData( filename: string, data: InternalUsfmJsonFormat,
 
 
     //now bring up the pipeline in order to merge it back with the alignment data
-    let mergedPerf = undefined;
-    try{
-        const pipelineH = new PipelineHandler({proskomma: new Proskomma()});
-        const mergeAlignmentPipeline_output = await pipelineH.runPipeline('mergeAlignmentPipeline', {
-            perf: strippedUsfmPerf,
-            strippedAlignment: data.alignmentData.perf,
-        });
-        mergedPerf = mergeAlignmentPipeline_output.perf;
-    }catch( e ){
-        console.log( e );
-    }
-
+    let mergedPerf = await mergeAlignmentPerf( strippedUsfmPerf, data.alignmentData.perf );
     if( !mergedPerf ) return undefined;
 
     const sourceVerse = pullVerseFromPerf( reference, sourceUsfmPerf );
@@ -594,10 +817,10 @@ class UsfmDocument extends Disposable implements vscode.CustomDocument, UsfmDocu
     public readonly onDidDispose = this._onDidDispose.event;
     
     /**
-	 * Called by VS Code when there are no more references to the document.
-	 *
-	 * This happens when all editors for it have been closed.
-	 */
+     * Called by VS Code when there are no more references to the document.
+     *
+     * This happens when all editors for it have been closed.
+     */
     dispose(): void {
         console.log( "Disposing document " + this._uri.toString() );
 
@@ -606,42 +829,42 @@ class UsfmDocument extends Disposable implements vscode.CustomDocument, UsfmDocu
         this.isClosed = true;
     }
 
-	private readonly _onDidChangeDocument = this._register(new vscode.EventEmitter<{
-		readonly content: InternalUsfmJsonFormat;
-	}>());
-	/**
-	 * Fired to notify webviews that the document has changed.
-	 */
-	public readonly onDidChangeContent = this._onDidChangeDocument.event;
+    private readonly _onDidChangeDocument = this._register(new vscode.EventEmitter<{
+        readonly content: InternalUsfmJsonFormat;
+    }>());
+    /**
+     * Fired to notify webviews that the document has changed.
+     */
+    public readonly onDidChangeContent = this._onDidChangeDocument.event;
 
-	private readonly _onDidChange = this._register(new vscode.EventEmitter<{
-		readonly label: string,
-		undo(): void,
-		redo(): void,
-	}>());
-	/**
-	 * Fired to tell VS Code that an edit has occurred in the document.
-	 *
-	 * This updates the document's dirty indicator.
-	 */
-	public readonly onDidChange = this._onDidChange.event;
+    private readonly _onDidChange = this._register(new vscode.EventEmitter<{
+        readonly label: string,
+        undo(): void,
+        redo(): void,
+    }>());
+    /**
+     * Fired to tell VS Code that an edit has occurred in the document.
+     *
+     * This updates the document's dirty indicator.
+     */
+    public readonly onDidChange = this._onDidChange.event;
 
 
 
-	/**
-	 * Called when the user edits the document in a webview.
-	 *
-	 * This fires an event to notify VS Code that the document has been edited.
-	 */
-	makeEdit(newContent: InternalUsfmJsonFormat) {
-		const lastDocumentState = this._documentData;
+    /**
+     * Called when the user edits the document in a webview.
+     *
+     * This fires an event to notify VS Code that the document has been edited.
+     */
+    makeEdit(newContent: InternalUsfmJsonFormat) {
+        const lastDocumentState = this._documentData;
         this._documentData = newContent;
 
         console.log( "making edit on version " + this._documentData.strippedUsfm.version );
 
-		this._onDidChange.fire({
-			label: 'onDidChangeLabel', //<-- Not sure where this comes through.
-			undo: async () => {
+        this._onDidChange.fire({
+            label: 'onDidChangeLabel', //<-- Not sure where this comes through.
+            undo: async () => {
                 console.log( "undoing edit" );
 
                 const replacedData = this._documentData;
@@ -650,11 +873,11 @@ class UsfmDocument extends Disposable implements vscode.CustomDocument, UsfmDocu
                 this._documentData.alignmentData.version = replacedData.alignmentData.version + 1 + Math.random();
                 this._documentData.strippedUsfm.version = replacedData.strippedUsfm.version + 1 + Math.random();
                 console.log( "Undoing edit now on version " + this._documentData.strippedUsfm.version );
-				this._onDidChangeDocument.fire({
-					content: this._documentData,
-				});
-			},
-			redo: async () => {
+                this._onDidChangeDocument.fire({
+                    content: this._documentData,
+                });
+            },
+            redo: async () => {
                 console.log( "redoing edit" );
 
                 const replacedData = this._documentData;
@@ -662,32 +885,32 @@ class UsfmDocument extends Disposable implements vscode.CustomDocument, UsfmDocu
                 this._documentData.alignmentData.version = replacedData.alignmentData.version + 1 + Math.random();
                 this._documentData.strippedUsfm.version = replacedData.strippedUsfm.version + 1 + Math.random();
                 console.log( "Redoing edit now on version " + this._documentData.strippedUsfm.version );
-				this._onDidChangeDocument.fire({
-					content: this._documentData,
-				});
-			}
-		});
+                this._onDidChangeDocument.fire({
+                    content: this._documentData,
+                });
+            }
+        });
 
         this._onDidChangeDocument.fire({
             content: this._documentData
         });
-	}
+    }
 
-	/**
-	 * Called by VS Code when the user saves the document.
-	 */
-	async save(cancellation: vscode.CancellationToken): Promise<void> {
+    /**
+     * Called by VS Code when the user saves the document.
+     */
+    async save(cancellation: vscode.CancellationToken): Promise<void> {
         if( this._documentData && !cancellation.isCancellationRequested ){
             await this.saveAs(this.uri, cancellation, false );
         }
-	}
+    }
 
 
 
-	/**
-	 * Called by VS Code when the user saves the document to a new location.
-	 */
-	async saveAs(targetResource: vscode.Uri, cancellation: vscode.CancellationToken, isBackup: boolean ): Promise<void> {
+    /**
+     * Called by VS Code when the user saves the document to a new location.
+     */
+    async saveAs(targetResource: vscode.Uri, cancellation: vscode.CancellationToken, isBackup: boolean ): Promise<void> {
         if( !this._documentData ){ return; }
         if( cancellation.isCancellationRequested ){ return; }
 
@@ -726,13 +949,13 @@ class UsfmDocument extends Disposable implements vscode.CustomDocument, UsfmDocu
 
             await vscode.workspace.fs.writeFile(targetResource, jsonArray);
         }
-	}
+    }
 
 
     /**
-	 * Called by VS Code when the user calls `revert` on a document.
-	 */
-	async revert(_cancellation: vscode.CancellationToken): Promise<void> {
+     * Called by VS Code when the user calls `revert` on a document.
+     */
+    async revert(_cancellation: vscode.CancellationToken): Promise<void> {
         console.log( "started revert" );
         //get the new version number now so that if edits happen after the revert finishes
         //we don't overwrite anymore.
@@ -766,27 +989,27 @@ class UsfmDocument extends Disposable implements vscode.CustomDocument, UsfmDocu
         }else{
             console.log( "canceled revert" );
         }
-	}
+    }
 
-	/**
-	 * Called by VS Code to backup the edited document.
-	 *
-	 * These backups are used to implement hot exit.
-	 */
-	async backup(destination: vscode.Uri, cancellation: vscode.CancellationToken): Promise<vscode.CustomDocumentBackup> {
-		await this.saveAs(destination, cancellation, true);
+    /**
+     * Called by VS Code to backup the edited document.
+     *
+     * These backups are used to implement hot exit.
+     */
+    async backup(destination: vscode.Uri, cancellation: vscode.CancellationToken): Promise<vscode.CustomDocumentBackup> {
+        await this.saveAs(destination, cancellation, true);
 
-		return {
-			id: destination.toString(),
-			delete: async () => {
-				try {
-					await vscode.workspace.fs.delete(destination);
-				} catch {
-					// noop
-				}
-			}
-		};
-	}
+        return {
+            id: destination.toString(),
+            delete: async () => {
+                try {
+                    await vscode.workspace.fs.delete(destination);
+                } catch {
+                    // noop
+                }
+            }
+        };
+    }
 }
 
 
@@ -828,18 +1051,18 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
 
     private static readonly viewType = 'com.lansfords.usfmEditor';
 
-	/**
-	 * Tracks all known webviews.  
+    /**
+     * Tracks all known webviews.  
      * The class takes care of automatically dropping references to the webviews when they close.
-	 */
-	private readonly webviews = new WebviewCollection();
+     */
+    private readonly webviews = new WebviewCollection();
 
 
     constructor(private readonly _context: vscode.ExtensionContext) {
         
     }
 
-	//#region CustomEditorProvider
+    //#region CustomEditorProvider
 
     async openCustomDocument(uri: vscode.Uri, openContext: vscode.CustomDocumentOpenContext, token: vscode.CancellationToken): Promise<UsfmDocument> {
         const document: UsfmDocument = await UsfmDocument.create(uri, openContext.backupId, this );
@@ -847,7 +1070,7 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
         const listeners: vscode.Disposable[] = [];
 
         listeners.push(document.onDidChange( e => {
-			// Tell VS Code that the document has been edited by the use.
+            // Tell VS Code that the document has been edited by the use.
             this._onDidChangeCustomDocument.fire({
                 document,
                 ...e,
@@ -855,9 +1078,9 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
         }));
 
 
-		listeners.push(document.onDidChangeContent(e => {
-			// Update all webviews when the document changes
-			for (const webviewPanel of this.webviews.get(document.uri)) {
+        listeners.push(document.onDidChangeContent(e => {
+            // Update all webviews when the document changes
+            for (const webviewPanel of this.webviews.get(document.uri)) {
 
                 const updateMessage: UsfmMessage = {
                     command: 'sync',
@@ -868,10 +1091,10 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
                 }catch{
                     //ignore
                 }
-			}
-		}));
+            }
+        }));
 
-		document.onDidDispose(() => disposeAll(listeners));
+        document.onDidDispose(() => disposeAll(listeners));
 
 
         // const configuration = vscode.workspace.getConfiguration();
@@ -886,12 +1109,12 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
         // const testConfigurationInteger = vscode.workspace?.getConfiguration("usfmEditor").get('testConfigurationInteger', 1 );
         // console.log("testConfigurationInteger3: " + testConfigurationInteger);
 
-		return document;
+        return document;
     }
 
     async resolveCustomEditor(document: UsfmDocument, webviewPanel: vscode.WebviewPanel, token: vscode.CancellationToken): Promise<void> {
-		// Add the webview to our internal set of active webviews
-		this.webviews.add(document.uri, webviewPanel);
+        // Add the webview to our internal set of active webviews
+        this.webviews.add(document.uri, webviewPanel);
 
         // Setup initial content for the webview
         webviewPanel.webview.options = {
@@ -899,7 +1122,7 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
         };
         webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
-		webviewPanel.webview.onDidReceiveMessage(e => this.onMessage(document, e, webviewPanel));
+        webviewPanel.webview.onDidReceiveMessage(e => this.onMessage(document, e, webviewPanel));
 
         webviewPanel.onDidChangeViewState(e => {
             if (e.webviewPanel.active) {
@@ -911,8 +1134,8 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
     }
 
     
-	private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<UsfmDocument>>();
-	public readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
+    private readonly _onDidChangeCustomDocument = new vscode.EventEmitter<vscode.CustomDocumentEditEvent<UsfmDocument>>();
+    public readonly onDidChangeCustomDocument = this._onDidChangeCustomDocument.event;
 
     
     private readonly _onUsfmActiveEditorChanged = new vscode.EventEmitter<UsfmDocument>();
@@ -920,27 +1143,27 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
 
 
     public saveCustomDocument(document: UsfmDocument, cancellation: vscode.CancellationToken): Thenable<void> {
-		return document.save(cancellation);
-	}
+        return document.save(cancellation);
+    }
 
-	public saveCustomDocumentAs(document: UsfmDocument, destination: vscode.Uri, cancellation: vscode.CancellationToken): Thenable<void> {
-		return document.saveAs(destination, cancellation, false );
-	}
+    public saveCustomDocumentAs(document: UsfmDocument, destination: vscode.Uri, cancellation: vscode.CancellationToken): Thenable<void> {
+        return document.saveAs(destination, cancellation, false );
+    }
 
     
-	public revertCustomDocument(document: UsfmDocument, cancellation: vscode.CancellationToken): Thenable<void> {
-		return document.revert(cancellation);
-	}
+    public revertCustomDocument(document: UsfmDocument, cancellation: vscode.CancellationToken): Thenable<void> {
+        return document.revert(cancellation);
+    }
 
-	public backupCustomDocument(document: UsfmDocument, context: vscode.CustomDocumentBackupContext, cancellation: vscode.CancellationToken): Thenable<vscode.CustomDocumentBackup> {
-		return document.backup(context.destination, cancellation);
-	}
-	//#endregion
+    public backupCustomDocument(document: UsfmDocument, context: vscode.CustomDocumentBackupContext, cancellation: vscode.CancellationToken): Thenable<vscode.CustomDocumentBackup> {
+        return document.backup(context.destination, cancellation);
+    }
+    //#endregion
 
 
-	/**
-	 * Get the static HTML used for in our editor's webviews.
-	 */
+    /**
+     * Get the static HTML used for in our editor's webviews.
+     */
     private getHtmlForWebview(webview: vscode.Webview): string {
         // Local path to script and css for the webview
         const styleResetUri = webview.asWebviewUri(vscode.Uri.joinPath(
@@ -1014,21 +1237,21 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
         return Promise.resolve();
     }
 
-	private _requestId = 1;
-	private readonly _callbacks = new Map<number, (response: UsfmMessage) => void>();
+    private _requestId = 1;
+    private readonly _callbacks = new Map<number, (response: UsfmMessage) => void>();
 
-	private postMessageWithResponse(panel: vscode.WebviewPanel, message:UsfmMessage): Promise<UsfmMessage> {
-		const requestId = this._requestId++;
-		const p = new Promise<UsfmMessage>(resolve => this._callbacks.set(requestId, resolve));
+    private postMessageWithResponse(panel: vscode.WebviewPanel, message:UsfmMessage): Promise<UsfmMessage> {
+        const requestId = this._requestId++;
+        const p = new Promise<UsfmMessage>(resolve => this._callbacks.set(requestId, resolve));
 
         const out_message: UsfmMessage = {
             ...message,
             requestId
         };
         
-		panel.webview.postMessage(out_message);
-		return p;
-	}
+        panel.webview.postMessage(out_message);
+        return p;
+    }
 
 
     async selectReference(reference: string, documentUri: vscode.Uri): Promise<void> {
@@ -1106,7 +1329,7 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
 
 
     private onMessage(document: UsfmDocument, message: UsfmMessage, webviewPanel: vscode.WebviewPanel) {
-		switch (message.command) {
+        switch (message.command) {
             case 'sync':
                 this.updateUsfmDocument(document, message, webviewPanel);
                 console.log( "update received" );
@@ -1180,8 +1403,24 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
                         error: err
                     });
                 });
-		}
-	}
+                break;
+            case 'setAlignmentData':
+                setAlignmentData( document.uri.fsPath, message.content!, message.commandArg! ).then( response => {
+                    webviewPanel.webview.postMessage({
+                        command: 'response',
+                        requestId: message.requestId,
+                        response
+                    });
+                }).catch( err => {
+                    webviewPanel.webview.postMessage({
+                        command: 'response',
+                        requestId: message.requestId,
+                        error: err
+                    });
+                })
+                break;
+        }
+    }
 
     private updateUsfmDocument(document: UsfmDocument, data: UsfmMessage, webviewPanel: vscode.WebviewPanel) {
         if( document.isClosed ) { return; }
@@ -1326,10 +1565,10 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
  */
 class WebviewCollection {
 
-	private readonly _webviews = new Set<{
-		readonly resource: string;
-		readonly webviewPanel: vscode.WebviewPanel;
-	}>();
+    private readonly _webviews = new Set<{
+        readonly resource: string;
+        readonly webviewPanel: vscode.WebviewPanel;
+    }>();
 
     public *all(): Iterable<vscode.WebviewPanel> {
         for (const entry of this._webviews) {
@@ -1337,27 +1576,27 @@ class WebviewCollection {
         }
     }
 
-	/**
-	 * Get all known webviews for a given uri.
-	 */
-	public *get(uri: vscode.Uri): Iterable<vscode.WebviewPanel> {
-		const key = uri.toString();
-		for (const entry of this._webviews) {
-			if (entry.resource === key) {
-				yield entry.webviewPanel;
-			}
-		}
-	}
+    /**
+     * Get all known webviews for a given uri.
+     */
+    public *get(uri: vscode.Uri): Iterable<vscode.WebviewPanel> {
+        const key = uri.toString();
+        for (const entry of this._webviews) {
+            if (entry.resource === key) {
+                yield entry.webviewPanel;
+            }
+        }
+    }
 
-	/**
-	 * Add a new webview to the collection.
-	 */
-	public add(uri: vscode.Uri, webviewPanel: vscode.WebviewPanel) {
-		const entry = { resource: uri.toString(), webviewPanel };
-		this._webviews.add(entry);
+    /**
+     * Add a new webview to the collection.
+     */
+    public add(uri: vscode.Uri, webviewPanel: vscode.WebviewPanel) {
+        const entry = { resource: uri.toString(), webviewPanel };
+        this._webviews.add(entry);
 
-		webviewPanel.onDidDispose(() => {
-			this._webviews.delete(entry);
-		});
-	}
+        webviewPanel.onDidDispose(() => {
+            this._webviews.delete(entry);
+        });
+    }
 }

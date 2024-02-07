@@ -66,7 +66,7 @@ interface UsfmMessage{
   command: string,
   content?: InternalUsfmJsonFormat,
   requestId?: number,
-  commandArg?: string,
+  commandArg?: any,
   response?: any,
   error?: any,
 }
@@ -115,12 +115,7 @@ export default function App() {
     }
   }
 
-  const setAlignmentData = ( newAlignmentData : any ) => {
-    const newDocumentData = deepCopy( getDocumentData );
-    newDocumentData.alignmentData.perf = newAlignmentData;
-    newDocumentData.alignmentData.version += 1 + Math.random();
-    setDocumentData( newDocumentData );
-  }
+
 
   const getDocumentData = () : InternalUsfmJsonFormat => {
     _documentDataRef.current.strippedUsfm.text = (editorRef.current?.getModel() as editor.ITextModel)?.getValue() || "";
@@ -252,6 +247,15 @@ export default function App() {
 
   const getAlignmentData = async ( reference: string ): Promise<any|undefined> => {
     return (await postMessageWithResponse( { command: 'getAlignmentData', content: getDocumentData(), commandArg: reference } )).response;
+  }
+
+  const setAlignmentData = async ( newAlignments : any, reference: string ) : Promise<void> => {
+    const documentData = getDocumentData();
+    const newConvertedAlignmentData = (await postMessageWithResponse( { command: 'setAlignmentData', content: documentData, commandArg: { reference, newAlignments } } )).response;
+    const newDocumentData = { ...documentData };
+    newDocumentData.alignmentData.perf = newConvertedAlignmentData;
+    newDocumentData.alignmentData.version += 1 + Math.random();
+    setDocumentData( newDocumentData );
   }
 
   //Go ahead and subscribe to the plugin events.

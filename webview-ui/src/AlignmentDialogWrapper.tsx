@@ -10,11 +10,10 @@ interface AlignmentDialogWrapperProps {
     getConfiguration: (key: string) => Promise<any>;
     getFile: (path: string) => Promise<string|undefined>;
     alignmentData: any;
-    setAlignmentData: (alignmentData: any) => void;
+    setAlignmentData: (alignmentData: any, reference: string) => void;
     getDocumentUri: () => Promise<string>;
     getAlignmentData: (reference: string) => Promise<any>;
 }
-
 
 
 // interface SourceMapI{
@@ -25,8 +24,9 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
     reference,
     getConfiguration,
     getFile,
+    setAlignmentData,
     getDocumentUri,
-    getAlignmentData,
+    getAlignmentData
 }) => {
 
     //state var for the source map.
@@ -35,13 +35,13 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
 
 
 
-    const [alignmentData, setAlignmentData] = React.useState<any>({});
+    const [alignmentDataState, setAlignmentDataState] = React.useState<any>({});
 
 
     async function figureAlignmentData(){
         let alignmentData = await getAlignmentData(reference);
         console.log( "alignmentData: " + alignmentData );
-        setAlignmentData(alignmentData);
+        setAlignmentDataState(alignmentData);
     }
     useEffect(() => {
         figureAlignmentData();
@@ -61,7 +61,8 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
     }
 
     const onAlignmentChange = (alignmentData: TAlignerData) => {
-        console.log( "AlignmentData: " + alignmentData );
+        console.log( "AlignmentData: " + alignmentData );  
+        setAlignmentData(alignmentData.verseAlignments, reference);
     }
 
     console.log( "About to render Alignment dialog wrapper" );
@@ -69,16 +70,16 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
     return (
         <div id="AlignmentDialogWrapper">
             <p>Alignment dialog wrapper {reference}</p>
-            {Object.keys(alignmentData || {}).length === 0 ? (
+            {Object.keys(alignmentDataState || {}).length === 0 ? (
                 // Show loading message if alignments are an empty dictionary
                 <p>Loading...</p>
             ) : (
                 // Render the SuggestingWordAligner component if alignments are not empty
                 <SuggestingWordAligner
-                    key={alignmentData?.reference}
+                    key={alignmentDataState?.reference}
                     style={{ maxHeight: `${height}px`, overflowY: 'auto' }}
-                    verseAlignments={alignmentData?.alignments || null}
-                    targetWords={alignmentData?.wordBank || null}
+                    verseAlignments={alignmentDataState?.alignments || null}
+                    targetWords={alignmentDataState?.wordBank || null}
                     translate={translate}
                     contextId={{ reference: reference }}
                     targetLanguage={"xxx"}
