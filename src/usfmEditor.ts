@@ -341,6 +341,11 @@ function extractAlignmentsFromPerfVerse( perfVerse: any ): any[] {
     const alignments : any[] = [];
     const sourceStack : any[] = [];
     const targetStack : any[] = [];
+
+    //we need to stash alignments as we make them so that further words that get
+    //added to them can get poked into existing ones.
+    const sourceNgramHashToAlignment = new Map<string, any>();
+
     let targetIndex = 0;
     for( const content of perfVerse ){
 
@@ -358,8 +363,17 @@ function extractAlignmentsFromPerfVerse( perfVerse: any ): any[] {
                 const sourceNgram = [...sourceStack];
                 const targetNgram = [...targetStack];
 
-                alignments.push( { sourceNgram, targetNgram } );
+                const sourceNgramHash = hashNgramToString( sourceNgram );
 
+                //If we have already seen the source ngram then add the target ngram to it
+                if( !sourceNgramHashToAlignment.has( sourceNgramHash ) ){
+                    const newAlignment = { sourceNgram, targetNgram };
+                    sourceNgramHashToAlignment.set( sourceNgramHash, newAlignment );
+                    alignments.push( newAlignment );
+                }else{
+                    const existingAlignment = sourceNgramHashToAlignment.get( sourceNgramHash );
+                    existingAlignment.targetNgram = [...existingAlignment.targetNgram, ...targetNgram];
+                }
                 //clear the targetStack
                 targetStack.length = 0;
             }
