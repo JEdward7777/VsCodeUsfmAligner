@@ -2,7 +2,7 @@ import { useState } from 'react'
 // import reactLogo from './assets/react.svg'
 // import viteLogo from '/vite.svg'
 import './App.css'
-import AlignmentDialogWrapper from './AlignmentDialogWrapper';
+import AlignmentDialogWrapper, { VersionInfo } from './AlignmentDialogWrapper';
 
 function deepCopy(obj: any): any {
   return JSON.parse(JSON.stringify(obj));
@@ -249,13 +249,14 @@ export default function App() {
     return (await postMessageWithResponse( { command: 'getAlignmentData', content: getDocumentData(), commandArg: reference } )).response;
   }
 
-  const setAlignmentData = async ( newAlignments : any, reference: string ) : Promise<void> => {
+  const setAlignmentData = async ( newAlignments : any, reference: string ) : Promise<VersionInfo> => {
     const documentData = getDocumentData();
     const newConvertedAlignmentData = (await postMessageWithResponse( { command: 'setAlignmentData', content: documentData, commandArg: { reference, newAlignments } } )).response;
     const newDocumentData = { ...documentData };
     newDocumentData.alignmentData.perf = newConvertedAlignmentData;
     newDocumentData.alignmentData.version += 1 + Math.random();
     setDocumentData( newDocumentData );
+    return { strippedUsfmVersion: newDocumentData.strippedUsfm.version, alignmentDataVersion: newDocumentData.alignmentData.version, reference };
   }
 
   //Go ahead and subscribe to the plugin events.
@@ -361,7 +362,8 @@ export default function App() {
         reference={appState.alignmentReference} 
         setAlignmentData={setAlignmentData}
         getAlignmentData={getAlignmentData}
-        key={"" +documentDataState?.strippedUsfm?.version + "," + documentDataState?.alignmentData?.version }
+        strippedUsfmVersion={documentDataState?.strippedUsfm?.version}
+        alignmentDataVersion={documentDataState?.alignmentData?.version}
       />
     </p>
   </>
