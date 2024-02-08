@@ -7,11 +7,7 @@ import './AlignmentDialogWrapper.css';
 
 interface AlignmentDialogWrapperProps {
     reference: string;
-    getConfiguration: (key: string) => Promise<any>;
-    getFile: (path: string) => Promise<string|undefined>;
-    alignmentData: any;
     setAlignmentData: (alignmentData: any, reference: string) => void;
-    getDocumentUri: () => Promise<string>;
     getAlignmentData: (reference: string) => Promise<any>;
 }
 
@@ -22,10 +18,7 @@ interface AlignmentDialogWrapperProps {
 
 const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
     reference,
-    getConfiguration,
-    getFile,
     setAlignmentData,
-    getDocumentUri,
     getAlignmentData
 }) => {
 

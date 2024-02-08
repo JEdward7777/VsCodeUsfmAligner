@@ -359,12 +359,9 @@ export default function App() {
     <p style={{ display: (appState.activeView === 'view_align_usfm' ? 'block' : 'none') }}>
       <AlignmentDialogWrapper 
         reference={appState.alignmentReference} 
-        getConfiguration={getConfiguration}
-        getFile={getFile}
-        alignmentData={documentDataState.alignmentData.perf}
         setAlignmentData={setAlignmentData}
-        getDocumentUri={getDocumentUri}
         getAlignmentData={getAlignmentData}
+        key={"" +documentDataState?.strippedUsfm?.version + "," + documentDataState?.alignmentData?.version }
       />
     </p>
   </>

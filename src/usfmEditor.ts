@@ -559,11 +559,11 @@ function replaceAlignmentsInPerfVerse( perfVerse: any, newAlignments: any ): any
                             subtype: "usfm:zaln",
                             atts: {}
                         }
+                        if( sourceToken.hasOwnProperty("strong"     ) ){ newStartMilestone.atts["x-strong"      ] = [ "" + sourceToken.strong         ]; }
                         if( sourceToken.hasOwnProperty("lemma"      ) ){ newStartMilestone.atts["x-lemma"       ] = [ "" + sourceToken.lemma          ]; }
                         if( sourceToken.hasOwnProperty("morph"      ) ){ newStartMilestone.atts["x-morph"       ] =        sourceToken.morph.split(","); }
                         if( sourceToken.hasOwnProperty("occurrence" ) ){ newStartMilestone.atts["x-occurrence"  ] = [ "" + sourceToken.occurrence     ]; }
                         if( sourceToken.hasOwnProperty("occurrences") ){ newStartMilestone.atts["x-occurrences" ] = [ "" + sourceToken.occurrences    ]; }
-                        if( sourceToken.hasOwnProperty("strong"     ) ){ newStartMilestone.atts["x-strong"      ] = [ "" + sourceToken.strong         ]; }
                         if( sourceToken.hasOwnProperty("text"       ) ){ newStartMilestone.atts["x-content"     ] = [ "" + sourceToken.text           ]; }
                         result.push( newStartMilestone );
                     }
@@ -617,25 +617,6 @@ async function setAlignmentData( filename: string, data: InternalUsfmJsonFormat,
     });
 
     const strippedAlign = stripAlignmentPipeline_outputs.strippedAlignment;
-
-
-
-    //Here double check real quick what it looks like if I remerge it real fast.
-    const pipelineH = new PipelineHandler({proskomma: new Proskomma()});
-    const mergeAlignmentPipeline_output = await pipelineH.runPipeline('mergeAlignmentPipeline', {
-        perf: usfmToPerf( data.strippedUsfm.text ),
-        strippedAlignment: strippedAlign,
-    });
-    const remergedPerf = mergeAlignmentPipeline_output.perf;
-
-    //See what happens if I use the stripped perf which just came out of the transform.
-    const pipelineH2 = new PipelineHandler({proskomma: new Proskomma()});
-    const mergeAlignmentPipeline_output2 = await pipelineH2.runPipeline('mergeAlignmentPipeline', {
-        perf: stripAlignmentPipeline_outputs.perf,
-        strippedAlignment: strippedAlign,
-    });
-    const remergedPerf2 = mergeAlignmentPipeline_output2.perf;
-
 
     return strippedAlign;
 }
