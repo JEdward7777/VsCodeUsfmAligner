@@ -69,30 +69,20 @@ export abstract class Disposable {
     }
 }
 
-function computeSourceFilenames(filename: string, sourceMap: { [key: string]: string[] }): string[] {
+function computeSourceFilenames(filename: string, sourceFolders: string[]): string[] {
 
     const transformedFilenames: string[] = [];
 
-    for (const regexPattern in sourceMap) {
-        const regex = new RegExp(regexPattern);
-        const match = filename.match(regex);
+    //if sourceFolders is a string wrap it in an array.
+    if (typeof sourceFolders === 'string') { sourceFolders = [sourceFolders]; }
 
-        if (match) {
-            // iterate through the values in sourceMap[RegexPattern]
-            // and replace in the filename
-            for (const pattern of sourceMap[regexPattern]) {
+    for (const sourceFolder in sourceFolders) {
+        //get the filename without the path from filename:
+        const filenameWithoutPath = path.basename(filename);
 
-                // Use capture groups to replace in the corresponding value
-                const replacementPiece = pattern.replace(/\$(\d+)/g, (_, groupIndex) => match[parseInt(groupIndex, 10)]);
-
-                //now put the replacement in the filename.
-                const transformedFilename = filename.replace(regex, replacementPiece);
-
-                transformedFilenames.push(transformedFilename);
-            }
-        }
+        //now concatenate that onto the sourceFolder path.
+        transformedFilenames.push(path.join(sourceFolders[sourceFolder], filenameWithoutPath));
     }
-
     //return all the matches.
     return transformedFilenames;
 }
@@ -103,22 +93,22 @@ function computeSourceFilenames(filename: string, sourceMap: { [key: string]: st
  * with.
  * @return {Promise<{ [key: string]: string[] }>} The retrieved source map
  */
-async function getSourceMap() : Promise< { [key: string]: string[] } >{
-    if( !vscode.workspace ) return {};
+async function getSourceFolders() : Promise< string[] >{
+    if( !vscode.workspace ) return [];
 
     
-    console.log( "requesting sourceMap." );
-    //let sourceMap : any = await getConfiguration("sourceMap");
-    let sourceMap : { [key: string]: string[] } | undefined = vscode.workspace?.getConfiguration("usfmEditor").get("sourceMap" );
+    console.log( "requesting sourceFolders." );
+
+    let sourceFolders : string[] | undefined = vscode.workspace?.getConfiguration("usfmEditor").get("sourceFolders" );
     
-    if( sourceMap === undefined ) return {};
+    //if sourceFolders is undefined, then get the default.
+    if( sourceFolders === undefined ) { sourceFolders = []; }
 
-    if( Object.keys(sourceMap).length == 0 ){ 
-        sourceMap = {"([^\\\\/]*)\\.usfm": ["source/$1.usfm"]}; 
-    }
-    console.log( "received sourceMap. " + sourceMap );
+    //if sourceFolders is a string wrap it in an array.
+    if( typeof sourceFolders === 'string' ){ sourceFolders = [sourceFolders]; }
 
-    return sourceMap;
+
+    return sourceFolders;
 }
 
 
@@ -152,8 +142,8 @@ async function getFirstValidFile( filenames: string[] ) : Promise<string | undef
 }
 
 async function getSourceFileForTargetFile( filename: string ) : Promise< string | undefined > {
-    let sourceMap = await getSourceMap();    
-    let sourceFilenames = computeSourceFilenames( filename, sourceMap );
+    let sourceFolders = await getSourceFolders();    
+    let sourceFilenames = computeSourceFilenames( filename, sourceFolders );
     return getFirstValidFile( sourceFilenames );
 }
 

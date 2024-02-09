@@ -25,10 +25,13 @@
           "default": "abcd",
           "description": "Test Configuration String"
         },
-        "usfmEditor.sourceMap": {
-          "type": "object",
-          "description": "Source Usfm Mappings.\nRegular expression to map from target file to source.  First one which matches is used. \ne.g. { \"([^\\\\\\\\/]*)\\\\.usfm\": \"source/$1.usfm\" }",
-          "default": { }
+        "usfmEditor.sourceFolders": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of source folders.  Source files are expected to have the same filename as target files.",
+          "default": ["./source"]
         }
       }
     },

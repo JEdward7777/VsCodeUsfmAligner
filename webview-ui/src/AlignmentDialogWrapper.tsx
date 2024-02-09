@@ -40,11 +40,6 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
     getAlignmentData
 }) => {
 
-    //state var for the source map.
-    //const [sourceMap, setSourceMap] = React.useState<SourceMapI>({});
-
-
-
     //This contains the alignment data for the dialog.  Changing
     //This feeds the dialog.  The dialog is keyed off of the reference
     //and version numbers so that if these are changed in state the dialog
