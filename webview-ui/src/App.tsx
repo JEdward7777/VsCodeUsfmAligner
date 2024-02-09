@@ -347,17 +347,34 @@ export default function App() {
   }, [appState]);
   
 
+  useEffect(() => {
+    if (editorRef.current) {
+      editorRef.current.layout(); 
+    }
+  }, [appState.activeView]);
+
   return <>
     <p>ActiveView {appState.activeView}</p>
-    <p style={{ display: (appState.activeView === 'view_stripped_usfm' ? 'block' : 'none') }}>
+    <div style={
+      { 
+        "display": (appState.activeView === 'view_stripped_usfm' ? 'flex' : 'none'), 
+        "flexDirection": 'column', 
+        "flex": 1 
+      }}>
       <Editor 
-      height="80vh" width="90vh" defaultLanguage="text" 
+      wrapperProps={{ style: { 
+        flex: 1,
+        display: 'flex',
+        position: 'relative',
+        textAlign: 'initial'
+      } }} 
+      defaultLanguage="text" 
       theme={editorColorScheme} 
       onChange={handleEditorChange} 
       onMount={handleEditorMount}
       />
-    </p>
-    <p style={{ display: (appState.activeView === 'view_align_usfm' ? 'block' : 'none') }}>
+    </div>
+    <div style={{ display: (appState.activeView === 'view_align_usfm' ? 'flex' : 'none'), width: '100%', height: '100%' }}>
       <AlignmentDialogWrapper 
         reference={appState.alignmentReference} 
         setAlignmentData={setAlignmentData}
@@ -365,6 +382,6 @@ export default function App() {
         strippedUsfmVersion={documentDataState?.strippedUsfm?.version}
         alignmentDataVersion={documentDataState?.alignmentData?.version}
       />
-    </p>
-  </>
+    </div>
+ </>
 }
