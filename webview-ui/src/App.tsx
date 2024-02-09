@@ -374,7 +374,10 @@ export default function App() {
       onMount={handleEditorMount}
       />
     </div>
-    <div style={{ display: (appState.activeView === 'view_align_usfm' ? 'flex' : 'none'), width: '100%', height: '100%' }}>
+    <div style={{ display: (appState.activeView === 'view_align_usfm' ? 'flex' : 'none'), 
+        "flexDirection": 'column', 
+        "flex": 1 
+       }}>
       <AlignmentDialogWrapper 
         reference={appState.alignmentReference} 
         setAlignmentData={setAlignmentData}

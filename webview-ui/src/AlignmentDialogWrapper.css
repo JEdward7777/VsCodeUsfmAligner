@@ -3,9 +3,12 @@
     of the dialog to be on the same line */
 #AlignmentDialogWrapper > div > div > div {
     display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
 }
 #AlignmentDialogWrapper > div > div > div > button {
     margin-right: 10px; 
+    flex: 1;
 }
 
 
