@@ -1,71 +1,54 @@
-# usfmEditor README
+# usfmEditor - VSCode Plugin for Editing USFM Files
 
-This is the README for the extension "usfmeditor". Todo is to write a brief description and then to list the following features..
+The `usfmeditor` plugin is designed to facilitate the editing of [USFM (Unified Standard Format Markup)](https://paratext.org/usfm/) files within Visual Studio Code.  USFM files are commonly used for storing Bible tranlsation, employing specific tags such as `\c` for chapter and `\v` for verse.  This plugin extends the functionality of VSCode to provide an editing experience for USFM files, particularly focusing on managing alignment information associated with translations.
 
 ## Features
 
-Describe specific features of this extension including screenshots of this extension in action. Image paths are relative to this README file.
+### Stripped USFM View
+The plugin offers a synthetic view of USFM files which transparently removes alignment information to enhance readability.  This view enables users to edit translations without the interference of intrusive alignment data.
 
-For example if there is an image subfolder under this extension project workspace:
+![Stripped USFM View](readme_files/stripped_usfm_screenshot.png)
 
-\!\[feature X\]\(images/feature-x.png\)
+### Alignment Editing Interface
+Additionally, the plugin includes a user-friendly drag-and-drop interface dedicated to editing alignment information.  Users can easily associated target language words with their respective source language counterparts, verse by verse.
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off this extension! We recommend short, focused animations that are easy to follow.
+![Alignment Editor Usage](readme_files/alignment_editor_animation.gif)
 
-## Requirements
+### Tree View for Navigation
+Three tree view feature provides a structured representation of chapters and verses, facilitating seamless navigation within the stripped USFM view.  Users can quickly locate specific verses and activate the alignment editor as needed.
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+![Tree View](readme_files/navigation_animation.gif)
+
+
+### Synced editing.
+Information syncs dynamically between the stripped usfm view and the alignment dialog.  Alignment information for removed words is not lost until the document is saved or the alignment is modified.
+
+![Sync Animation](readme_files/sync_animation.gif)
 
 ## Extension Settings
 
-Include if this extension adds any VS Code settings through the `contributes.configuration` extension point.
+The plugin offers a simple configuration option called `usfmEditor.sourceFolders`, allowing users to specify the directories where USFM files containing the source language (e.g., Greek or Hebrew) are located.  This configuration can be easily modified via VSCode's Workspace settings GUI.
 
-For example:
+## Usage
 
-This extension contributes the following settings:
+Once the plugin is enabled, opening a file which ends with .usfm should open in the Usfm Editor.  The content is added or removed using the stripped Usfm editor view which supports normal USFM syntax.
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+Once a verse is added, alinement can be added for that verse by clicking on the alignment action icon next to the verse in the USFM Outline panel.
+
+Changes are using the vscode save action like any other document.  Undo and redo work.
+
+## Installation
+
+TODO
 
 ## Known Issues
 
-Calling out known issues can help limit users opening duplicate issues against this extension.
+* You can't actually add a new verse currently as the engine fails to merge with the existing alignment.  There is a fix already in the pipe for this, but hasn't yet landed.
 
-## Release Notes
+## License
 
-Users appreciate release notes as you update this extension.
+MIT License
 
-### 1.0.0
+## Disclaimer
 
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating this extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author this README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+This plugin is currently in a proof-of-concept stage and may require further refinement before being suitable for end-user deployment.  Most likely the code here will be combined together or split apart into other like proof-of-concept projects before being build into a end user product.
