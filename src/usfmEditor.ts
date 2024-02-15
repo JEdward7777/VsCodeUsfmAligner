@@ -142,9 +142,43 @@ async function getFirstValidFile( filenames: string[] ) : Promise<string | undef
 }
 
 async function getSourceFileForTargetFile( filename: string ) : Promise< string | undefined > {
-    let sourceFolders = await getSourceFolders();    
-    let sourceFilenames = computeSourceFilenames( filename, sourceFolders );
-    return getFirstValidFile( sourceFilenames );
+    let done = false;
+    let result = undefined;
+    const baseFilename = path.basename(filename);
+    while( !done ){
+        let sourceFolders = await getSourceFolders();    
+        let sourceFilenames = computeSourceFilenames( filename, sourceFolders );
+        result = await getFirstValidFile( sourceFilenames );
+
+        if( result !== undefined ){
+            done = true;
+        }else{
+            //Ask the user for a path to the source files.
+            const newSourceFolder = await vscode.window.showInputBox({
+                placeHolder: `Enter the folder containing the source lang file related to ${baseFilename}:`,
+                value: ""
+            });
+
+            if( newSourceFolder ){
+                //test to see if the supplied folder works.
+                sourceFilenames = computeSourceFilenames( filename, [newSourceFolder] );
+                result = await getFirstValidFile( sourceFilenames );
+
+                if( result === undefined ){
+                    vscode.window.showErrorMessage(`Did not find a file named ${baseFilename} in the source folder ${newSourceFolder}`);
+                }else{
+                    //if we found a source there, go ahead and change to configuration to add this folder.
+                    sourceFolders.push( newSourceFolder );
+                    await vscode.workspace?.getConfiguration("usfmEditor").update("sourceFolders", sourceFolders);
+                    done = true;
+                }
+            }else{
+                //if the user cancels then we are done.
+                done = true;
+            }
+        }
+    }
+    return result;
 }
 
 function usfmToPerf( usfm: string ): any {
