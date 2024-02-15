@@ -113,6 +113,6 @@
   },
   "dependencies": {
     "proskomma-core": "^0.10.4",
-    "proskomma-json-tools": "^0.8.6"
+    "proskomma-json-tools": "^0.8.7"
   }
 }
