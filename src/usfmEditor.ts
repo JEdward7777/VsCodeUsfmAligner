@@ -6,6 +6,7 @@ import {Proskomma} from 'proskomma-core';
 import {PipelineHandler} from 'proskomma-json-tools';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Worker } from 'node:worker_threads';
 
 interface InternalUsfmJsonFormat{
     strippedUsfm: {
@@ -1081,6 +1082,31 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
         
     }
 
+    private static alignmentTrainerWorker: Worker | null = null;
+
+    async startAlignmentTrainer(){
+        //Check if alignment training is enabled in the config
+        if( vscode.workspace.getConfiguration('usfmEditor').get('alignmentTraining.enabled', true) ){
+     
+
+            //Test if it's already running.
+            if( UsfmEditorProvider.alignmentTrainerWorker === null ){
+                console.log( "starting alignment trainer worker" );
+                UsfmEditorProvider.alignmentTrainerWorker = new Worker(path.join(__dirname, "./alignmentTrainerWorker.js"));
+
+                UsfmEditorProvider.alignmentTrainerWorker.on('exit', (code) => {
+                    console.log( "alignment trainer worker exited with code " + code );
+                    UsfmEditorProvider.alignmentTrainerWorker = null;
+                });
+            }else{
+                console.log( "alignment trainer worker already running" );
+            }
+
+        }else{
+            console.log( "alignment training not enabled" );
+        }
+    }
+
     //#region CustomEditorProvider
 
     async openCustomDocument(uri: vscode.Uri, openContext: vscode.CustomDocumentOpenContext, token: vscode.CancellationToken): Promise<UsfmDocument> {
@@ -1150,11 +1176,15 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
 
 
     public saveCustomDocument(document: UsfmDocument, cancellation: vscode.CancellationToken): Thenable<void> {
-        return document.save(cancellation);
+        const result = document.save(cancellation);
+        this.startAlignmentTrainer();
+        return result
     }
 
     public saveCustomDocumentAs(document: UsfmDocument, destination: vscode.Uri, cancellation: vscode.CancellationToken): Thenable<void> {
-        return document.saveAs(destination, cancellation, false );
+        const result = document.saveAs(destination, cancellation, false );
+        this.startAlignmentTrainer();
+        return result;
     }
 
     
