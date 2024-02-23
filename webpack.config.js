@@ -15,7 +15,7 @@ const extensionConfig = {
   // the entry point of this extension, 📖 -> https://webpack.js.org/configuration/entry-context/
   entry: {
     extension: './src/extension.ts', 
-    alignmentTrainerWorker: './src/alignmentTrainerWorker.ts'
+    alignmentTrainerWorker: './src/workers/alignmentTrainerWorker.ts'
   },
   output: {
     // the bundle is stored in the 'dist' folder (check package.json), 📖 -> https://webpack.js.org/configuration/output/

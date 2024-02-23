@@ -7,6 +7,7 @@ import {PipelineHandler} from 'proskomma-json-tools';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Worker } from 'node:worker_threads';
+import { WorkerMessage } from './workers/alignmentTrainerTypes';
 
 interface InternalUsfmJsonFormat{
     strippedUsfm: {
@@ -1098,6 +1099,47 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
                     console.log( "alignment trainer worker exited with code " + code );
                     UsfmEditorProvider.alignmentTrainerWorker = null;
                 });
+
+                UsfmEditorProvider.alignmentTrainerWorker.on('message', async (message: WorkerMessage) => {
+                    try{
+                        if( message.command === "getConfiguration" ){
+                            UsfmEditorProvider.alignmentTrainerWorker?.postMessage({
+                                command: "respond",
+                                requestId: message.requestId,
+                                content: vscode.workspace.getConfiguration('usfmEditor').get(message.content.key, message.content.defaultValue)
+                            });
+                        }else if( message.command === "getOpenFiles" ){
+                            const openFiles = Array.from(this.webviews.entries()).map( e => e[0] );
+                            UsfmEditorProvider.alignmentTrainerWorker?.postMessage({
+                                command: "respond",
+                                requestId: message.requestId,
+                                content: openFiles
+                            });
+                        }else if( message.command === "getWorkspaceFolders" ){
+                            UsfmEditorProvider.alignmentTrainerWorker?.postMessage({
+                                command: "respond",
+                                requestId: message.requestId,
+                                content: vscode.workspace.workspaceFolders
+                            });
+                        }else if( message.command === "getFileStat" ){
+                            const stat = await vscode.workspace.fs.stat( vscode.Uri.parse( message.content.filePath ) );
+                            UsfmEditorProvider.alignmentTrainerWorker?.postMessage({
+                                command: "respond",
+                                requestId: message.requestId,
+                                content: stat
+                            });
+                        }
+                    }catch ( e ){
+                        if( message.requestId ){
+                            UsfmEditorProvider.alignmentTrainerWorker?.postMessage({
+                                command: "respond",
+                                requestId: message.requestId,
+                                content: null,
+                                error: e
+                            });
+                        }
+                    }
+                })
             }else{
                 console.log( "alignment trainer worker already running" );
             }
@@ -1610,6 +1652,12 @@ class WebviewCollection {
     public *all(): Iterable<vscode.WebviewPanel> {
         for (const entry of this._webviews) {
             yield entry.webviewPanel;
+        }
+    }
+
+    public *entries(): Iterable<[string, vscode.WebviewPanel]> {
+        for (const entry of this._webviews) {
+            yield [entry.resource, entry.webviewPanel];
         }
     }
 
