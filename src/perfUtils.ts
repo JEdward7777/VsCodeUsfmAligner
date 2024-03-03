@@ -1,0 +1,832 @@
+
+//@ts-ignore
+import {Proskomma} from 'proskomma-core';
+//@ts-ignore
+import {PipelineHandler} from 'proskomma-json-tools';
+
+import path from 'path';
+import fs from 'fs';
+
+//These types are not official, I add items to these types as
+//I verify they exist.
+interface PerfAttributes{
+    number: string,
+}
+
+interface PerfContext{
+    type?: string,
+    subtype?: string,
+    atts?: PerfAttributes,
+}
+
+interface PerfBlock{
+    type?: string,
+    subtype?: string,
+    content?: PerfContext[],
+}
+
+
+//Define an interface PerfVerse which is an array of PerfBlock.
+interface PerfVerse extends Array<PerfBlock> {}
+
+interface PerfAlignment{
+
+}
+
+interface PerfSequence{
+    blocks?: PerfBlock[],
+}
+interface Perf{
+    sequences?: { [key: string]:PerfSequence},
+    main_sequence_id?: string,
+}
+
+export const SECONDARY_WORD = 'secondaryWord';
+export const PRIMARY_WORD = 'primaryWord';
+
+
+//Copied this type from alignments-transferer.  Commenting stuff in when they get touched.
+
+export interface TWord{
+    type: string;
+
+    occurrence?: number | string;
+    occurrences?: number | string;
+
+    // position?: number;
+
+    // //Sometimes it is word sometimes it is text.
+    // word?: string; //usfm format uses word
+    text?: string; //alignment uses text.
+
+    // content?: string;
+    // endTag?: string;
+    lemma?: string;
+    morph?: string;
+    // strongs?: string; //something was using strongs, I forget
+    strong?: string; //alignment dialog uses strong
+    // tag?: string;
+
+    // children?: TWord[];
+
+    disabled?: boolean; //Makes it look used in the word bank.
+    
+    index?: number;
+}
+
+
+    export interface TSourceTargetAlignment{
+        sourceNgram: TWord[];
+        targetNgram: TWord[];
+    }
+
+    export interface TAlignmentSuggestion{
+        alignments: TSourceTargetAlignment[];
+        confidence: number;
+    }
+/*
+    export interface TSourceTargetSuggestion{
+        alignment: TSourceTargetAlignment;
+        confidence: number;
+    }
+    
+
+    interface TTopBottomAlignment{
+        topWords: TWord[];
+        bottomWords: TWord[];
+    }
+
+    interface TAlignerData{
+        wordBank: TWord[];
+        alignments: TSourceTargetAlignment[];
+    }
+  
+
+    interface TReference{
+        chapter: number;
+        verse: number;
+    }
+
+    interface TContextId{
+        reference: TReference;
+    }
+
+    interface TUsfmVerse{
+        verseObjects: TWord[];
+    }
+
+    type TUsfmChapter = {[key:string]:TUsfmVerse};
+
+    interface TUsfmHeader{
+        tag: string;
+        content: string;
+    }
+
+    interface TUsfmBook{
+        headers: TUsfmHeader[];
+        chapters: {[key:string]:TUsfmChapter};
+    }
+
+    export interface TWordAlignerAlignmentResult{
+        targetWords: TWord[];
+        verseAlignments: TSourceTargetAlignment[];
+    }
+      
+
+    //I don't need this react interface declared on the server side of the project.
+
+    
+    // interface SuggestingWordAlignerProps {
+    //     style: {[key: string]: string };
+    //     verseAlignments: TSourceTargetAlignment;
+    //     targetWords: TWord[];
+    //     translate: (key:string)=>string;
+    //     contextId: TContextId;
+    //     targetLanguage: string;
+    //     targetLanguageFont: {};
+    //     sourceLanguage: string;
+    //     showPopover: (PopoverTitle: string, wordDetails: string, positionCoord: string, rawData: any) => void;
+    //     lexicons: {};
+    //     loadLexiconEntry: (arg:string)=>{[key:string]:string};
+    //     onChange: (results: TWordAlignerAlignmentResult) => void;
+    //     suggester: ((sourceSentence: string | Token[], targetSentence: string | Token[], maxSuggestions?: number, manuallyAligned: Alignment[] = []) => Suggestion[]) | null;
+    // }
+    // export class SuggestingWordAligner extends React.Component<SuggestingWordAlignerProps>{}
+
+    //function removeUsfmMarkers(verse: UsfmVerse):string;
+    //function usfmVerseToJson();
+
+    
+
+
+    export module usfmHelpers {
+        export function removeUsfmMarkers(targetVerseText: string): string;
+    }
+
+    export module AlignmentHelpers{
+        export function getWordListFromVerseObjects( verseObjects: TWord[] ): Token[];
+        export function markTargetWordsAsDisabledIfAlreadyUsedForAlignments(targetWordList: Token[], alignments: TSourceTargetAlignment[]):TWord[];
+        export function addAlignmentsToVerseUSFM( wordBankWords: TWord[], verseAlignments: any, targetVerseText: string ): string;
+        //I see that Algnments is not spelled correctly, it is this way in the library.
+        export function areAlgnmentsComplete( targetWords: TWord[], verseAlignments: TSourceTargetAlignment[] ): boolean;
+    }
+    */
+
+export interface TTrainingAndTestingData {
+    alignments: {
+        [key: string]: {
+            targetVerse: TWord[];
+            sourceVerse: TWord[];
+            alignments: TSourceTargetAlignment[];
+        }
+    };
+    corpus: {
+        [key: string]: {
+            sourceTokens: TWord[];
+            targetTokens: TWord[];
+        }
+    };
+}
+
+export function deepCopy(obj: any): any {
+    return JSON.parse(JSON.stringify(obj));
+}
+
+
+export function usfmToPerf( usfm: string ): Perf {
+    const pk = new Proskomma();
+    pk.importDocument({lang: "xxx", abbr: "yyy"}, "usfm", usfm);
+    return JSON.parse(pk.gqlQuerySync("{documents {perf}}").data.documents[0].perf);
+}
+
+export function pullVerseFromPerf( reference: string, perf: Perf ): PerfVerse | undefined {
+    if( !reference ) return undefined;
+    
+    const referenceParts = reference.split(":");
+
+    if( referenceParts.length != 2 ) return undefined;
+
+    const chapter : string = referenceParts[0];
+    const verse : string = referenceParts[1];
+
+
+    let currentChapter : string = "-1";
+    let currentVerse : string = "-1";
+
+    const collectedContent : any[] = [];
+
+    //first iterate the chapters.
+    //perf.sequences[perf.main_sequence_id].blocks is an array.
+    for( const block of perf?.sequences?.[perf?.main_sequence_id ?? ""]?.blocks ?? [] ){
+        if( block.type == 'paragraph' ){
+            for( const content of (block.content ?? []) ){
+                if( content.type == 'mark' ){
+                    if( content.subtype == 'chapter' ){
+                        currentChapter = content?.atts?.number ?? "-1";
+                    }else if( content.subtype == 'verses' ){
+                        currentVerse = content?.atts?.number ?? "-1";
+                    }
+                    //if we have changed the reference and we have already
+                    //collected content, then we can stop scanning and just return
+                    if( collectedContent.length > 0 && currentChapter != chapter && currentVerse != verse ){
+                        return collectedContent;
+                    }
+                }else{
+                    //if we are in the correct reference then collect the content.
+                    if( currentChapter == chapter && currentVerse == verse ){
+                        collectedContent.push( content );
+                    }
+                }
+            }
+        }
+    }
+
+    return collectedContent;
+}
+
+
+export function pullVersesFromPerf( perf: Perf ): { [key: string]: PerfVerse } {
+    let currentChapter : string = "-1";
+    let currentVerse : string = "-1";
+
+    const collectedContent : { [key: string]: PerfVerse } = {};
+
+    //first iterate the chapters.
+    //perf.sequences[perf.main_sequence_id].blocks is an array.
+    for( const block of perf?.sequences?.[perf?.main_sequence_id ?? ""]?.blocks ?? [] ){
+        if( block.type == 'paragraph' ){
+            for( const content of (block.content ?? []) ){
+                if( content.type == 'mark' ){
+                    if( content.subtype == 'chapter' ){
+                        currentChapter = content?.atts?.number ?? "-1";
+                    }else if( content.subtype == 'verses' ){
+                        currentVerse = content?.atts?.number ?? "-1";
+                    }
+                }else{
+                    if( currentChapter !== "-1" && currentVerse !== "-1" ){
+                        const currentReference = `${currentChapter}:${currentVerse}`;
+                        if( !collectedContent[currentReference] ){
+                            collectedContent[currentReference] = [];
+                        }
+
+                        collectedContent[currentReference].push( content );
+                    }
+                }
+            }
+        }
+    }
+    return collectedContent;
+}
+
+
+
+export function replacePerfVerseInPerf( perf :Perf, perfVerse: PerfVerse, reference : string ){
+    if( !reference ) return undefined;
+    
+    const referenceParts = reference.split(":");
+
+    if( referenceParts.length != 2 ) return undefined;
+
+    const chapter : string = referenceParts[0];
+    const verse : string = referenceParts[1];
+
+
+    let currentChapter : string = "-1";
+    let currentVerse : string = "-1";
+
+    const newMainSequenceBlocks : any[] = [];
+
+    //iterate the chapters.
+    for( const block of perf?.sequences?.[perf?.main_sequence_id ?? ""]?.blocks ?? [] ){
+        if( block.type == 'paragraph' ){
+            const newContent = [];
+            for( const content of block.content ?? [] ){
+                let dropContent  = false;
+                let pushNewVerse = false;
+                if( content.type == 'mark' ){
+                    if( content.subtype == 'chapter' ){
+                        currentChapter = content.atts?.number ?? "-1";
+                    }else if( content.subtype == 'verses' ){
+                        currentVerse = content.atts?.number ?? "-1";
+
+                        //if the chapter and verse are correct, then dump the inserted content in.
+                        if( currentChapter == chapter && currentVerse == verse ){
+                            //I set a flag here instead of just push it because
+                            //the content has to be pushed after the verse indicator
+                            pushNewVerse = true;
+                        }   
+                    }
+                }else{
+                    //if we are in the existing verse, then drop all existing content
+                    //so that the inserted content is not doubled.
+                    if( currentChapter == chapter && currentVerse == verse ){
+                        dropContent = true;
+                    }
+                }
+                if( !dropContent ){ newContent.push(    content   );}
+                if( pushNewVerse ){ newContent.push( ...perfVerse );}
+            }
+            newMainSequenceBlocks.push( {
+                ...block,
+                content: newContent
+            });
+        }else{
+            newMainSequenceBlocks.push( block );
+        }
+    }
+
+    const newPerf = {
+        ...perf,
+        sequences: {
+            ...perf.sequences,
+            [perf?.main_sequence_id ?? ""]: {
+                ...perf?.sequences?.[perf?.main_sequence_id ?? ""],
+                blocks: newMainSequenceBlocks
+            }
+        }
+    };
+
+    return newPerf;
+}
+
+
+function perfContentToTWord( perfContent: any, type: string ): TWord {
+    const word : TWord = {
+        type
+    };
+
+    if (perfContent?.atts?.["x-occurrence" ] ) { word["occurrence" ] = perfContent.atts["x-occurrence" ].join(" "); }
+    if (perfContent?.atts?.["x-occurrences"] ) { word["occurrences"] = perfContent.atts["x-occurrences"].join(" "); }
+    if (perfContent?.atts?.["x-content"    ] ) { word["text"       ] = perfContent.atts["x-content"    ].join(" "); }
+    if (perfContent?.      ["content"      ] ) { word["text"       ] = perfContent.content              .join(" "); }
+    if (perfContent?.atts?.["x-lemma"      ] ) { word["lemma"      ] = perfContent.atts["x-lemma"      ].join(" "); }
+    if (perfContent?.atts?.["lemma"        ] ) { word["lemma"      ] = perfContent.atts["lemma"        ].join(" "); }
+    if (perfContent?.atts?.["x-morph"      ] ) { word["morph"      ] = perfContent.atts["x-morph"      ].join(","); }
+    if (perfContent?.atts?.["x-strong"     ] ) { word["strong"     ] = perfContent.atts["x-strong"     ].join(" "); }
+    if (perfContent?.atts?.["strong"       ] ) { word["strong"     ] = perfContent.atts["strong"       ].join(" "); }
+    return word;
+}
+
+
+function computeOccurrenceInformation( words: TWord[] ){
+    const wordsCopy = deepCopy( words );
+    const occurrenceMap = new Map<string, number>();
+    for( const word of wordsCopy ){
+        const occurrence = (occurrenceMap.get( word.text ) || 0) + 1;
+        occurrenceMap.set( word.text, occurrence );
+        word.occurrence = occurrence;
+    }
+    for( const word of wordsCopy ){
+        word.occurrences = occurrenceMap.get( word.text );
+    }
+    return wordsCopy;
+}
+
+export function extractWrappedWordsFromPerfVerse( perfVerse: PerfVerse, type: string, reindexOccurrences: boolean = false ): TWord[] {
+    let wrappedWords : TWord[] = [];
+    let inMapping = false;
+    let index = 0;
+    for( const content of perfVerse ){
+        //If content is a string just skip it.  It is like commas and stuff.
+        if( typeof content == 'string' ){
+            //pass
+        }else if( content.type == "wrapper" && content.subtype == "usfm:w" ){
+            const wrappedWord = perfContentToTWord( content, type );
+            wrappedWord.disabled = inMapping; //If the word is mapped then disable it for the wordBank.
+            wrappedWord.index = index++;
+            wrappedWords.push( wrappedWord );
+        }else if( content.type == "start_milestone" && content.subtype == "usfm:zaln" ){
+            inMapping = true;
+        }else if( content.type == "end_milestone" && content.subtype == "usfm:zaln" ){
+            //I know the end_milestone can come in clumps, but this works anyways.
+            inMapping = false;
+        }
+    }
+    //recompute occurrence information if it doesn't exist.
+    if( wrappedWords.length > 0 && (!wrappedWords[0].occurrence || reindexOccurrences) ){
+        wrappedWords = computeOccurrenceInformation( wrappedWords );
+    }
+    return wrappedWords;
+}
+
+export function extractAlignmentsFromPerfVerse( perfVerse: PerfVerse ): TSourceTargetAlignment[] {
+    const alignments : TSourceTargetAlignment[] = [];
+    const sourceStack : any[] = [];
+    const targetStack : any[] = [];
+
+    //we need to stash alignments as we make them so that further words that get
+    //added to them can get poked into existing ones.
+    const sourceNgramHashToAlignment = new Map<string, any>();
+
+    let targetIndex = 0;
+    for( const content of perfVerse ){
+
+        if( content.type == "start_milestone" && content.subtype == "usfm:zaln" ){
+            //we can't index the source words right now because they are out of order.
+            //we will do it later when the alignments are supplemented with the unused source words.
+            sourceStack.push( perfContentToTWord(content, PRIMARY_WORD) );
+
+            //If there are any target words then just drop them because they aren't part of this
+            //group.
+            targetStack.length = 0;
+        }else if( content.type == "end_milestone" && content.subtype == "usfm:zaln" ){
+            //process the source and target stacks when we are a place where we are popping
+            if( targetStack.length > 0 ){
+                const sourceNgram = [...sourceStack];
+                const targetNgram = [...targetStack];
+
+                const sourceNgramHash = hashNgramToString( sourceNgram );
+
+                //If we have already seen the source ngram then add the target ngram to it
+                if( !sourceNgramHashToAlignment.has( sourceNgramHash ) ){
+                    const newAlignment = { sourceNgram, targetNgram };
+                    sourceNgramHashToAlignment.set( sourceNgramHash, newAlignment );
+                    alignments.push( newAlignment );
+                }else{
+                    const existingAlignment = sourceNgramHashToAlignment.get( sourceNgramHash );
+                    existingAlignment.targetNgram = [...existingAlignment.targetNgram, ...targetNgram];
+                }
+                //clear the targetStack
+                targetStack.length = 0;
+            }
+
+            sourceStack.pop();
+        }else if( content.type == "wrapper" && content.subtype == "usfm:w" ){
+            const wrappedWord = perfContentToTWord( content, SECONDARY_WORD );
+            wrappedWord.index = targetIndex++;
+            targetStack.push( wrappedWord );
+        }
+    }
+    return alignments;
+}
+
+function hashWordToString( word: TWord ){
+    return `${word.text}-${word.occurrence}`;
+}
+
+function hashNgramToString( ngram: TWord[] ){
+    return ngram?.map( ( word: TWord ) => hashWordToString( word ) )?.join("/");
+}
+
+export function sortAndSupplementFromSourceWords( sourceWords:any, alignments:any ){
+    //Hash the source word list so that we can find them when going through the alignment source words.
+    const sourceWordHashToSourceWord = Object.fromEntries( sourceWords.map( ( word : any ) => {
+        return [ hashWordToString( word ), word ];
+    }));
+    //now hash all the sources to indicate which ones are represented so we can add the ones which are not.
+    const sourceWordHashToExistsBool = alignments.reduce( (acc:any, cur:any) => {
+        cur.sourceNgram.forEach( ( word :any  ) => {
+            acc[ hashWordToString( word ) ] = true;
+        });
+        return acc;
+    }, {});
+
+    //now create an array of the sourceWords which are not represented.
+    const newSourceWords = sourceWords.filter( ( word : any ) => {
+        return !( hashWordToString( word ) in sourceWordHashToExistsBool );
+    })
+
+    //now create bogus alignments for the new source words.
+    const newAlignments = newSourceWords.map( ( word : any ) => {
+        //return a bogus alignment
+        return {
+            sourceNgram: [ word ],
+            targetNgram: []
+        }
+    });
+
+    //Now create a new list which has both the new alignments and the old alignments
+    const combinedAlignments = alignments.concat( newAlignments );
+
+    //Get the index set on all the source words in the alignment.
+    const sourceIndexedAlignments = combinedAlignments.map( ( alignment : any, index : number ) => {
+        const indexedSourceNgram = alignment.sourceNgram.map( ( sourceWord : any ) => {
+            return {
+                ...sourceWord,
+                index: sourceWordHashToSourceWord[ hashWordToString( sourceWord  )  ]?.index ?? -1
+            }
+        });
+        return {
+            ...alignment,
+            sourceNgram: indexedSourceNgram
+        };
+    });
+    
+    //now sort the alignment based on index of the first source word.
+    sourceIndexedAlignments.sort( ( a : any, b : any ) => {
+        return a.sourceNgram[0].index - b.sourceNgram[0].index;
+    });
+
+    //now give each alignment an index.
+    const indexedAlignments = sourceIndexedAlignments.map( ( alignment : any, index : number ) => {
+        return {
+            ...alignment,
+            index
+        };
+    });
+
+    return indexedAlignments;
+}
+
+export function reindexPerfVerse( perfVerse: PerfVerse ): PerfVerse {
+    const perfVerseCopy = deepCopy( perfVerse );
+    const occurrenceMap = new Map<string, number>();
+    for( const perfContent of perfVerseCopy ){
+        if( perfContent.hasOwnProperty("type") && perfContent.type == "wrapper" && 
+        perfContent.hasOwnProperty("subtype") && perfContent.subtype == "usfm:w" ){
+            const text = (perfContent?.["content"])?perfContent.content.join(" "):"";
+            const occurrence = (occurrenceMap.get( text ) || 0) + 1;
+            occurrenceMap.set( text, occurrence );
+            if( !perfContent.atts ) perfContent.atts = {};
+            perfContent.atts["x-occurrence" ] = [ "" + occurrence ];
+        }
+    }
+    for( const perfContent of perfVerseCopy ){
+        if( perfContent.hasOwnProperty("type") && perfContent.type == "wrapper" && 
+        perfContent.hasOwnProperty("subtype") && perfContent.subtype == "usfm:w" ){
+            const text = (perfContent?.["content"])?perfContent.content.join(" "):"";
+            if( !perfContent.atts ) perfContent.atts = {};
+            perfContent.atts["x-occurrences" ] = [ "" + occurrenceMap.get( text ) ];
+        }
+    }
+    return perfVerseCopy;
+}
+
+
+export async function mergeAlignmentPerf( strippedUsfmPerf: Perf, strippedAlignment: PerfAlignment ): Promise<Perf | undefined> {
+    try{
+        const pipelineH = new PipelineHandler({proskomma: new Proskomma()});
+        const mergeAlignmentPipeline_output = await pipelineH.runPipeline('mergeAlignmentPipeline', {
+            perf: strippedUsfmPerf,
+            strippedAlignment,
+        });
+        return mergeAlignmentPipeline_output.perf;
+    }catch( e ){
+        console.log( e );
+    }
+    return undefined;
+}
+
+export function replaceAlignmentsInPerfVerse( perfVerse: PerfVerse, newAlignments: TSourceTargetAlignment[] ): PerfVerse{
+    const result : PerfVerse = [];
+
+    const withoutOldAlignments = perfVerse.filter( ( perfContent : any ) => {
+        if( perfContent.hasOwnProperty("type") && 
+        (perfContent.type == "start_milestone" || perfContent.type == "end_milestone") &&
+        perfContent.hasOwnProperty("subtype") && perfContent.subtype == "usfm:zaln" ){
+            return false;
+        }
+        return true;
+    });
+
+    //this indicates what the current source alignment stack is so we know when it needs to change.
+    let currentSourceAlignmentHash = "";
+    let currentSourceAlignmentLength = 0;
+
+    //hash each of the target words to the alignment which contains them.
+    const targetWordHashToAlignment = new Map<string, any>();
+    for( const alignment of newAlignments ){
+        for( const targetWord of alignment.targetNgram ){
+            targetWordHashToAlignment.set( hashWordToString( targetWord ), alignment );
+        }
+    }
+
+    const closeSourceRange = () => {
+        //we can just put it at the end but we will instead look backwards and find the last place
+        //a word wrapper is and put it after that.
+        let lastWordIndex = result.length - 1;
+        while( lastWordIndex >= 0 && 
+         !(result[lastWordIndex].hasOwnProperty("type"   ) && result[lastWordIndex].type    == "wrapper" && 
+           result[lastWordIndex].hasOwnProperty("subtype") && result[lastWordIndex].subtype == "usfm:w") ){
+            lastWordIndex--;
+        }
+
+        //take out the old source alignment
+        //by inserting in after lastWordIndex
+        for( let i = 0; i < currentSourceAlignmentLength; i++ ){
+            const newEndMilestone : any = { 
+                type: "end_milestone", 
+                subtype: "usfm:zaln"
+            }
+            result.splice( lastWordIndex + i + 1, 0, newEndMilestone );
+        }
+    };
+
+    for( const perfContent of withoutOldAlignments ){
+        //Only do something different if it is a wrapped word.
+        if( perfContent.hasOwnProperty("type") && perfContent.type == "wrapper" && 
+        perfContent.hasOwnProperty("subtype") && perfContent.subtype == "usfm:w" ){
+            
+            const relevantAlignment = targetWordHashToAlignment.get( hashWordToString( perfContentToTWord( perfContent, SECONDARY_WORD ) ) );
+
+            //If the current currentSourceAlignmentHash is not correct and it is set we need to close it out.
+            if( currentSourceAlignmentHash != (hashNgramToString(relevantAlignment?.sourceNgram) ?? "") ){
+                closeSourceRange();
+
+                //add in the new alignment.
+                if( relevantAlignment ){
+                    for( const sourceToken of relevantAlignment.sourceNgram ){
+                        const newStartMilestone : any= {
+                            type: "start_milestone",
+                            subtype: "usfm:zaln",
+                            atts: {}
+                        }
+                        if( sourceToken.hasOwnProperty("strong"     ) ){ newStartMilestone.atts["x-strong"      ] = [ "" + sourceToken.strong         ]; }
+                        if( sourceToken.hasOwnProperty("lemma"      ) ){ newStartMilestone.atts["x-lemma"       ] = [ "" + sourceToken.lemma          ]; }
+                        if( sourceToken.hasOwnProperty("morph"      ) ){ newStartMilestone.atts["x-morph"       ] =        sourceToken.morph.split(","); }
+                        if( sourceToken.hasOwnProperty("occurrence" ) ){ newStartMilestone.atts["x-occurrence"  ] = [ "" + sourceToken.occurrence     ]; }
+                        if( sourceToken.hasOwnProperty("occurrences") ){ newStartMilestone.atts["x-occurrences" ] = [ "" + sourceToken.occurrences    ]; }
+                        if( sourceToken.hasOwnProperty("text"       ) ){ newStartMilestone.atts["x-content"     ] = [ "" + sourceToken.text           ]; }
+                        result.push( newStartMilestone );
+                    }
+                    currentSourceAlignmentHash = hashNgramToString(relevantAlignment.sourceNgram);
+                    currentSourceAlignmentLength = relevantAlignment.sourceNgram.length;
+                }else{
+                    currentSourceAlignmentHash = "";
+                    currentSourceAlignmentLength = 0;
+                }
+            }
+        }
+
+        result.push( perfContent );
+    }
+
+
+    //now close out any remaining source alignment.
+    closeSourceRange();
+    currentSourceAlignmentHash = "";
+    currentSourceAlignmentLength = 0;
+
+    //Note, this will not work correctly if the alignment spans multiple verses.  But we have issues otherwise if this is the case.
+
+    return result;
+}
+
+
+
+
+/**
+ * Asynchronously retrieves the source map.  The source map is what
+ * maps source files (greek, hebrew) from the target files that you are working
+ * with.
+ * @return {Promise<{ [key: string]: string[] }>} The retrieved source map
+ */
+export async function getSourceFolders( getConfiguration: (key: string) => Promise<any> ) : Promise< string[] >{
+    
+    console.log( "requesting sourceFolders." );
+
+    //let sourceFolders : string[] | undefined = vscode.workspace?.getConfiguration("usfmEditor").get("sourceFolders" );
+    let sourceFolders : string[] | undefined = await getConfiguration( "sourceFolders" );
+    
+    //if sourceFolders is undefined, then get the default.
+    if( sourceFolders === undefined ) { sourceFolders = []; }
+
+    //if sourceFolders is a string wrap it in an array.
+    if( typeof sourceFolders === 'string' ){ sourceFolders = [sourceFolders]; }
+
+
+    return sourceFolders;
+}
+
+function computeSourceFilenames(filename: string, sourceFolders: string[]): string[] {
+
+    const transformedFilenames: string[] = [];
+
+    //if sourceFolders is a string wrap it in an array.
+    if (typeof sourceFolders === 'string') { sourceFolders = [sourceFolders]; }
+
+    for (const sourceFolder in sourceFolders) {
+        //get the filename without the path from filename:
+        const filenameWithoutPath = path.basename(filename);
+
+        //now concatenate that onto the sourceFolder path.
+        transformedFilenames.push(path.join(sourceFolders[sourceFolder], filenameWithoutPath));
+    }
+    //return all the matches.
+    return transformedFilenames;
+}
+
+function getFileInWorkspace( filePath: string, firstWorkSpaceFolder: string ): Promise< string | undefined > {
+    //const firstWorkSpaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri.fsPath;
+    const filePathRebased = firstWorkSpaceFolder ? path.resolve(firstWorkSpaceFolder, filePath) : filePath;
+
+    return new Promise( (resolve, reject) => {
+        fs.readFile(filePathRebased, 'utf8', (err, data) => {
+            if (err) {
+                reject(err);
+            } else {
+                resolve(data);
+            }
+        });
+    });
+}
+
+
+async function getFirstValidFile( filenames: string[], firstWorkSpaceFolder: string ) : Promise<string | undefined> {
+    for( const filename of filenames ){
+        try{
+            let fileContent = await getFileInWorkspace( filename, firstWorkSpaceFolder );
+            if( fileContent ){
+                return fileContent;
+            }
+        }catch( e ){
+            //ignore
+        }
+    }
+    return undefined;
+}
+
+
+export async function getSourceFileForTargetFile( 
+        filename: string, 
+        getConfiguration: (key: string) => Promise<any>, 
+        firstWorkSpaceFolder: string ) : Promise< string | undefined > {
+    let result = undefined;
+    const baseFilename = path.basename(filename);
+    
+
+    let sourceFolders = await getSourceFolders(getConfiguration);    
+    let sourceFilenames = computeSourceFilenames( filename, sourceFolders );
+    result = await getFirstValidFile( sourceFilenames, firstWorkSpaceFolder );
+
+    if( result === undefined ){
+        //Throw an exception indicating that we can't find the file.
+        throw new Error(`Could not find source file for ${baseFilename}`);
+    }
+    return result;
+}
+
+export async function getAllAlignmentDataFromBook( filename: string, fileContents: string, 
+        getConfiguration: (key: string) => Promise<any>,
+        firstWorkSpaceFolder: string, includeUnfinished: boolean ): Promise< TTrainingAndTestingData | undefined >{
+
+    //TODO: Check if this throws an exception or returns null if it can't find the source files.
+    const sourceUsfm = await getSourceFileForTargetFile( filename , getConfiguration, firstWorkSpaceFolder );
+    if( !sourceUsfm ) return undefined;
+
+    const sourceUsfmPerf : Perf = usfmToPerf( sourceUsfm );
+
+    const targetUsfmPerf : Perf  = usfmToPerf( fileContents );
+
+    //use the file name without the path and the suffix as the book name.
+    const bookName = path.basename(filename).split(".")[0];
+
+    const sourceVerses : { [key: string]: PerfVerse} = pullVersesFromPerf( sourceUsfmPerf );
+    const targetVersesNotReindexed : { [key: string]: PerfVerse} = pullVersesFromPerf( targetUsfmPerf );
+
+
+    const targetVerses : { [key: string]: PerfVerse} = Object.fromEntries( Object.entries( targetVersesNotReindexed ).map( ([reference,targetVerseNotReindexed]: [string, PerfVerse]) => {
+        const targetVerse = reindexPerfVerse( targetVerseNotReindexed );
+        return [reference, targetVerse];
+    }))
+
+    const bookAlignments : { [key: string]: TSourceTargetAlignment[] } = Object.fromEntries( Object.entries( targetVerses ).map( ([reference,targetVerse]: [string, PerfVerse]) => {
+        const alignments = extractAlignmentsFromPerfVerse( targetVerse );
+        return [reference, alignments];
+    }));
+
+
+    const sourceWordsPerVerse = Object.fromEntries( Object.entries( sourceVerses ).map( ([reference,sourceVerse]: [string, PerfVerse]) => {
+          const sourceWords = extractWrappedWordsFromPerfVerse( sourceVerse, PRIMARY_WORD );
+          return [reference, sourceWords];
+    }))
+
+    const supplementedAlignmentsPerVerse = Object.fromEntries( Object.entries( bookAlignments ).map( ([reference,alignments]: [string, TSourceTargetAlignment[]]) => {
+        const sourceWords = sourceWordsPerVerse[reference] ?? [];
+        const supplementedAlignments = sortAndSupplementFromSourceWords( sourceWords, alignments );
+        return [reference, supplementedAlignments];
+    }))
+
+    //Now create the data structure which will be stuffed with the result.
+    const result : TTrainingAndTestingData = {
+        alignments: {},
+        corpus: {},
+    }
+
+    //now loop through all the data and stuff it into the result.
+    Object.entries( supplementedAlignmentsPerVerse ).forEach( ([reference,supplementedAlignments]: [string, TSourceTargetAlignment[]]) => {
+        const expandedReference = `${bookName} ${reference}`;
+
+        const tWordTargetVerse: TWord[] = extractWrappedWordsFromPerfVerse( targetVerses[reference], SECONDARY_WORD );
+        const tWordSourceVerse: TWord[] = extractWrappedWordsFromPerfVerse( sourceVerses[reference], PRIMARY_WORD );
+        result.corpus[expandedReference] = {
+            sourceTokens: tWordSourceVerse,
+            targetTokens: tWordTargetVerse
+        }
+
+        //only add it to the alignments if the alignment is complete so that we don't train on incomplete alignments.
+        const hasEmptySourceNgram = supplementedAlignments.some( (supplementedAlignment: TSourceTargetAlignment) => {
+            return supplementedAlignment.sourceNgram.length === 0;
+        });
+        
+        if( !hasEmptySourceNgram ){
+            result.alignments[expandedReference] = {
+                targetVerse: tWordTargetVerse,
+                sourceVerse: tWordSourceVerse,
+                alignments: supplementedAlignments,
+            }                
+        }
+    })
+
+    return result;
+}

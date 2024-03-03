@@ -16,7 +16,7 @@
   "activationEvents": [],
   "main": "./dist/extension.js",
   "contributes": {
-    "configuration":{
+    "configuration": {
       "title": "usfmEditor",
       "properties": {
         "usfmEditor.alignmentTraining.bookGroups": {
@@ -37,7 +37,9 @@
             "type": "string"
           },
           "description": "List of source folders.  Source files are expected to have the same filename as target files.",
-          "default": ["./source"]
+          "default": [
+            "./source"
+          ]
         },
         "usfmEditor.alignmentTraining.enabled": {
           "type": "boolean",
@@ -54,7 +56,8 @@
           "light": "resources/light/edit.svg",
           "dark": "resources/dark/edit.svg"
         }
-      },{
+      },
+      {
         "command": "usfmOutline.alignReference",
         "title": "Align Reference",
         "icon": {
@@ -89,7 +92,8 @@
           "command": "usfmOutline.selectReference",
           "when": "view == com.lansfords.usfmOutline && (viewItem == chapter || viewItem == verse)",
           "group": "inline"
-        },{
+        },
+        {
           "command": "usfmOutline.alignReference",
           "when": "view == com.lansfords.usfmOutline && viewItem == verse",
           "group": "inline"
@@ -125,6 +129,9 @@
   },
   "dependencies": {
     "proskomma-core": "^0.10.4",
-    "proskomma-json-tools": "^0.8.7"
+    "proskomma-json-tools": "^0.8.7",
+    "wordmap": "^0.6.0",
+    "wordmap-lexer": "^0.3.5",
+    "wordmapbooster": "^1.0.0"
   }
 }

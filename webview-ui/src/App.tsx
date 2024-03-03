@@ -219,7 +219,7 @@ export default function App() {
   const postMessageWithResponse = (message: UsfmMessage): Promise<UsfmMessage> =>  {
     const requestId = _requestIdRef.current;
     _requestIdRef.current += 1;
-    const p = new Promise<UsfmMessage>((resolve,error) => {
+    return new Promise<UsfmMessage>((resolve,error) => {
       _callbacksRef.current.set(requestId, (response: UsfmMessage) => {
         if( response.error ){
           error( response.error );
@@ -227,10 +227,8 @@ export default function App() {
           resolve( response );
         }
       });
-    })
-
-    vscodeRef.current?.postMessage({ ...message, requestId });
-    return p;
+      vscodeRef.current?.postMessage({ ...message, requestId });
+    });
   }
 
   const getConfiguration = async (key: string) : Promise<any> => {

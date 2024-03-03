@@ -8,6 +8,10 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { Worker } from 'node:worker_threads';
 import { WorkerMessage } from './workers/alignmentTrainerTypes';
+import { PRIMARY_WORD, SECONDARY_WORD, TSourceTargetAlignment, deepCopy, 
+    extractAlignmentsFromPerfVerse, extractWrappedWordsFromPerfVerse, getSourceFileForTargetFile, 
+    mergeAlignmentPerf, pullVerseFromPerf, reindexPerfVerse, replaceAlignmentsInPerfVerse, replacePerfVerseInPerf, 
+    sortAndSupplementFromSourceWords, usfmToPerf, TWord, TAlignmentSuggestion } from './perfUtils';
 
 interface InternalUsfmJsonFormat{
     strippedUsfm: {
@@ -37,11 +41,6 @@ export function disposeAll(disposables: vscode.Disposable[]): void {
         }
     }
 }
-
-function deepCopy(obj: any): any {
-    return JSON.parse(JSON.stringify(obj));
-}
-
 export abstract class Disposable {
     private _isDisposed = false;
 
@@ -71,551 +70,6 @@ export abstract class Disposable {
     }
 }
 
-function computeSourceFilenames(filename: string, sourceFolders: string[]): string[] {
-
-    const transformedFilenames: string[] = [];
-
-    //if sourceFolders is a string wrap it in an array.
-    if (typeof sourceFolders === 'string') { sourceFolders = [sourceFolders]; }
-
-    for (const sourceFolder in sourceFolders) {
-        //get the filename without the path from filename:
-        const filenameWithoutPath = path.basename(filename);
-
-        //now concatenate that onto the sourceFolder path.
-        transformedFilenames.push(path.join(sourceFolders[sourceFolder], filenameWithoutPath));
-    }
-    //return all the matches.
-    return transformedFilenames;
-}
-
-/**
- * Asynchronously retrieves the source map.  The source map is what
- * maps source files (greek, hebrew) from the target files that you are working
- * with.
- * @return {Promise<{ [key: string]: string[] }>} The retrieved source map
- */
-async function getSourceFolders() : Promise< string[] >{
-    if( !vscode.workspace ) return [];
-
-    
-    console.log( "requesting sourceFolders." );
-
-    let sourceFolders : string[] | undefined = vscode.workspace?.getConfiguration("usfmEditor").get("sourceFolders" );
-    
-    //if sourceFolders is undefined, then get the default.
-    if( sourceFolders === undefined ) { sourceFolders = []; }
-
-    //if sourceFolders is a string wrap it in an array.
-    if( typeof sourceFolders === 'string' ){ sourceFolders = [sourceFolders]; }
-
-
-    return sourceFolders;
-}
-
-
-function getFile( filePath: string ): Promise< string | undefined > {
-    const firstWorkSpaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri.fsPath;
-    const filePathRebased = firstWorkSpaceFolder ? path.resolve(firstWorkSpaceFolder, filePath) : filePath;
-
-    return new Promise( (resolve, reject) => {
-        fs.readFile(filePathRebased, 'utf8', (err, data) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(data);
-            }
-        });
-    });
-}
-
-async function getFirstValidFile( filenames: string[] ) : Promise<string | undefined> {
-    for( const filename of filenames ){
-        try{
-            let fileContent = await getFile( filename );
-            if( fileContent ){
-                return fileContent;
-            }
-        }catch{
-            //ignore
-        }
-    }
-    return undefined;
-}
-
-async function getSourceFileForTargetFile( filename: string ) : Promise< string | undefined > {
-    let done = false;
-    let result = undefined;
-    const baseFilename = path.basename(filename);
-    while( !done ){
-        let sourceFolders = await getSourceFolders();    
-        let sourceFilenames = computeSourceFilenames( filename, sourceFolders );
-        result = await getFirstValidFile( sourceFilenames );
-
-        if( result !== undefined ){
-            done = true;
-        }else{
-            //Ask the user for a path to the source files.
-            const newSourceFolder = await vscode.window.showInputBox({
-                placeHolder: `Enter the folder containing the source lang file related to ${baseFilename}:`,
-                value: ""
-            });
-
-            if( newSourceFolder ){
-                //test to see if the supplied folder works.
-                sourceFilenames = computeSourceFilenames( filename, [newSourceFolder] );
-                result = await getFirstValidFile( sourceFilenames );
-
-                if( result === undefined ){
-                    vscode.window.showErrorMessage(`Did not find a file named ${baseFilename} in the source folder ${newSourceFolder}`);
-                }else{
-                    //if we found a source there, go ahead and change to configuration to add this folder.
-                    sourceFolders.push( newSourceFolder );
-                    await vscode.workspace?.getConfiguration("usfmEditor").update("sourceFolders", sourceFolders);
-                    done = true;
-                }
-            }else{
-                //if the user cancels then we are done.
-                done = true;
-            }
-        }
-    }
-    return result;
-}
-
-function usfmToPerf( usfm: string ): any {
-    const pk = new Proskomma();
-    pk.importDocument({lang: "xxx", abbr: "yyy"}, "usfm", usfm);
-    return JSON.parse(pk.gqlQuerySync("{documents {perf}}").data.documents[0].perf);
-}
-
-function pullVerseFromPerf( reference: string, perf: any ): any {
-    if( !reference ) return undefined;
-    
-    const referenceParts = reference.split(":");
-
-    if( referenceParts.length != 2 ) return undefined;
-
-    const chapter : string = referenceParts[0];
-    const verse : string = referenceParts[1];
-
-
-    let currentChapter : string = "-1";
-    let currentVerse : string = "-1";
-
-    const collectedContent : any[] = [];
-
-    //first iterate the chapters.
-    //perf.sequences[perf.main_sequence_id].blocks is an array.
-    for( const block of perf.sequences[perf.main_sequence_id].blocks ){
-        if( block.type == 'paragraph' ){
-            for( const content of block.content ){
-                if( content.type == 'mark' ){
-                    if( content.subtype == 'chapter' ){
-                        currentChapter = content.atts.number;
-                    }else if( content.subtype == 'verses' ){
-                        currentVerse = content.atts.number;
-                    }
-                    //if we have changed the reference and we have already
-                    //collected content, then we can stop scanning and just return
-                    if( collectedContent.length > 0 && currentChapter != chapter && currentVerse != verse ){
-                        return collectedContent;
-                    }
-                }else{
-                    //if we are in the correct reference then collect the content.
-                    if( currentChapter == chapter && currentVerse == verse ){
-                        collectedContent.push( content );
-                    }
-                }
-            }
-        }
-    }
-
-    return collectedContent;
-}
-
-function replacePerfVerseInPerf( perf :any, perfVerse: any, reference : string ){
-    if( !reference ) return undefined;
-    
-    const referenceParts = reference.split(":");
-
-    if( referenceParts.length != 2 ) return undefined;
-
-    const chapter : string = referenceParts[0];
-    const verse : string = referenceParts[1];
-
-
-    let currentChapter : string = "-1";
-    let currentVerse : string = "-1";
-
-    const newMainSequenceBlocks : any[] = [];
-
-    //iterate the chapters.
-    for( const block of perf.sequences[perf.main_sequence_id].blocks ){
-        if( block.type == 'paragraph' ){
-            const newContent = [];
-            for( const content of block.content ){
-                let dropContent  = false;
-                let pushNewVerse = false;
-                if( content.type == 'mark' ){
-                    if( content.subtype == 'chapter' ){
-                        currentChapter = content.atts.number;
-                    }else if( content.subtype == 'verses' ){
-                        currentVerse = content.atts.number;
-
-                        //if the chapter and verse are correct, then dump the inserted content in.
-                        if( currentChapter == chapter && currentVerse == verse ){
-                            //I set a flag here instead of just push it because
-                            //the content has to be pushed after the verse indicator
-                            pushNewVerse = true;
-                        }   
-                    }
-                }else{
-                    //if we are in the existing verse, then drop all existing content
-                    //so that the inserted content is not doubled.
-                    if( currentChapter == chapter && currentVerse == verse ){
-                        dropContent = true;
-                    }
-                }
-                if( !dropContent ){ newContent.push(    content   );}
-                if( pushNewVerse ){ newContent.push( ...perfVerse );}
-            }
-            newMainSequenceBlocks.push( {
-                ...block,
-                content: newContent
-            });
-        }else{
-            newMainSequenceBlocks.push( block );
-        }
-    }
-
-    const newPerf = {
-        ...perf,
-        sequences: {
-            ...perf.sequences,
-            [perf.main_sequence_id]: {
-                ...perf.sequences[perf.main_sequence_id],
-                blocks: newMainSequenceBlocks
-            }
-        }
-    };
-
-    return newPerf;
-}
-
-
-function perfContentToTWord( perfContent: any ){
-    const word : { [key: string]: any } = {};
-
-     if (perfContent?.atts?.["x-occurrence" ] ) { word["occurrence" ] = perfContent.atts["x-occurrence" ].join(" "); }
-     if (perfContent?.atts?.["x-occurrences"] ) { word["occurrences"] = perfContent.atts["x-occurrences"].join(" "); }
-     if (perfContent?.atts?.["x-content"    ] ) { word["text"       ] = perfContent.atts["x-content"    ].join(" "); }
-     if (perfContent?.      ["content"      ] ) { word["text"       ] = perfContent.content              .join(" "); }
-     if (perfContent?.atts?.["x-lemma"      ] ) { word["lemma"      ] = perfContent.atts["x-lemma"      ].join(" "); }
-     if (perfContent?.atts?.["lemma"        ] ) { word["lemma"      ] = perfContent.atts["lemma"        ].join(" "); }
-     if (perfContent?.atts?.["x-morph"      ] ) { word["morph"      ] = perfContent.atts["x-morph"      ].join(","); }
-     if (perfContent?.atts?.["x-strong"     ] ) { word["strong"     ] = perfContent.atts["x-strong"     ].join(" "); }
-     if (perfContent?.atts?.["strong"       ] ) { word["strong"     ] = perfContent.atts["strong"       ].join(" "); }
-    return word;
-}
-
-
-function computeOccurrenceInformation( words: any[] ){
-    const wordsCopy = deepCopy( words );
-    const occurrenceMap = new Map<string, number>();
-    for( const word of wordsCopy ){
-        const occurrence = (occurrenceMap.get( word.text ) || 0) + 1;
-        occurrenceMap.set( word.text, occurrence );
-        word.occurrence = occurrence;
-    }
-    for( const word of wordsCopy ){
-        word.occurrences = occurrenceMap.get( word.text );
-    }
-    return wordsCopy;
-}
-
-function extractWrappedWordsFromPerfVerse( perfVerse: any, reindexOccurrences: boolean = false ): any[] {
-    let wrappedWords : any[] = [];
-    let inMapping = false;
-    let index = 0;
-    for( const content of perfVerse ){
-        //If content is a string just skip it.  It is like commas and stuff.
-        if( typeof content == 'string' ){
-            //pass
-        }else if( content.type == "wrapper" && content.subtype == "usfm:w" ){
-            const wrappedWord = perfContentToTWord( content );
-            wrappedWord.disabled = inMapping; //If the word is mapped then disable it for the wordBank.
-            wrappedWord.index = index++;
-            wrappedWords.push( wrappedWord );
-        }else if( content.type == "start_milestone" && content.subtype == "usfm:zaln" ){
-            inMapping = true;
-        }else if( content.type == "end_milestone" && content.subtype == "usfm:zaln" ){
-            //I know the end_milestone can come in clumps, but this works anyways.
-            inMapping = false;
-        }
-    }
-    //recompute occurrence information if it doesn't exist.
-    if( wrappedWords.length > 0 && (!wrappedWords[0].occurrence || reindexOccurrences) ){
-        wrappedWords = computeOccurrenceInformation( wrappedWords );
-    }else{
-        console.log( "Wrapped words already have occurrence information." );
-    }
-    return wrappedWords;
-}
-
-function extractAlignmentsFromPerfVerse( perfVerse: any ): any[] {
-    const alignments : any[] = [];
-    const sourceStack : any[] = [];
-    const targetStack : any[] = [];
-
-    //we need to stash alignments as we make them so that further words that get
-    //added to them can get poked into existing ones.
-    const sourceNgramHashToAlignment = new Map<string, any>();
-
-    let targetIndex = 0;
-    for( const content of perfVerse ){
-
-        if( content.type == "start_milestone" && content.subtype == "usfm:zaln" ){
-            //we can't index the source words right now because they are out of order.
-            //we will do it later when the alignments are supplemented with the unused source words.
-            sourceStack.push( perfContentToTWord(content) );
-
-            //If there are any target words then just drop them because they aren't part of this
-            //group.
-            targetStack.length = 0;
-        }else if( content.type == "end_milestone" && content.subtype == "usfm:zaln" ){
-            //process the source and target stacks when we are a place where we are popping
-            if( targetStack.length > 0 ){
-                const sourceNgram = [...sourceStack];
-                const targetNgram = [...targetStack];
-
-                const sourceNgramHash = hashNgramToString( sourceNgram );
-
-                //If we have already seen the source ngram then add the target ngram to it
-                if( !sourceNgramHashToAlignment.has( sourceNgramHash ) ){
-                    const newAlignment = { sourceNgram, targetNgram };
-                    sourceNgramHashToAlignment.set( sourceNgramHash, newAlignment );
-                    alignments.push( newAlignment );
-                }else{
-                    const existingAlignment = sourceNgramHashToAlignment.get( sourceNgramHash );
-                    existingAlignment.targetNgram = [...existingAlignment.targetNgram, ...targetNgram];
-                }
-                //clear the targetStack
-                targetStack.length = 0;
-            }
-
-            sourceStack.pop();
-        }else if( content.type == "wrapper" && content.subtype == "usfm:w" ){
-            const wrappedWord = perfContentToTWord( content );
-            wrappedWord.index = targetIndex++;
-            targetStack.push( wrappedWord );
-        }
-    }
-    return alignments;
-}
-
-function hashWordToString( word: any ){
-    return `${word.text}-${word.occurrence}`;
-}
-
-function hashNgramToString( ngram: any[] ){
-    return ngram?.map( ( word: any ) => hashWordToString( word ) )?.join("/");
-}
-
-function sortAndSupplementFromSourceWords( sourceWords:any, alignments:any ){
-    //Hash the source word list so that we can find them when going through the alignment source words.
-    const sourceWordHashToSourceWord = Object.fromEntries( sourceWords.map( ( word : any ) => {
-        return [ hashWordToString( word ), word ];
-    }));
-    //now hash all the sources to indicate which ones are represented so we can add the ones which are not.
-    const sourceWordHashToExistsBool = alignments.reduce( (acc:any, cur:any) => {
-        cur.sourceNgram.forEach( ( word :any  ) => {
-            acc[ hashWordToString( word ) ] = true;
-        });
-        return acc;
-    }, {});
-
-    //now create an array of the sourceWords which are not represented.
-    const newSourceWords = sourceWords.filter( ( word : any ) => {
-        return !( hashWordToString( word ) in sourceWordHashToExistsBool );
-    })
-
-    //now create bogus alignments for the new source words.
-    const newAlignments = newSourceWords.map( ( word : any ) => {
-        //return a bogus alignment
-        return {
-            sourceNgram: [ word ],
-            targetNgram: []
-        }
-    });
-
-    //Now create a new list which has both the new alignments and the old alignments
-    const combinedAlignments = alignments.concat( newAlignments );
-
-    //Get the index set on all the source words in the alignment.
-    const sourceIndexedAlignments = combinedAlignments.map( ( alignment : any, index : number ) => {
-        const indexedSourceNgram = alignment.sourceNgram.map( ( sourceWord : any ) => {
-            return {
-                ...sourceWord,
-                index: sourceWordHashToSourceWord[ hashWordToString( sourceWord  )  ]?.index ?? -1
-            }
-        });
-        return {
-            ...alignment,
-            sourceNgram: indexedSourceNgram
-        };
-    });
-    
-    //now sort the alignment based on index of the first source word.
-    sourceIndexedAlignments.sort( ( a : any, b : any ) => {
-        return a.sourceNgram[0].index - b.sourceNgram[0].index;
-    });
-
-    //now give each alignment an index.
-    const indexedAlignments = sourceIndexedAlignments.map( ( alignment : any, index : number ) => {
-        return {
-            ...alignment,
-            index
-        };
-    });
-
-    return indexedAlignments;
-}
-
-function reindexPerfVerse( perfVerse: any ): any {
-    const perfVerseCopy = deepCopy( perfVerse );
-    const occurrenceMap = new Map<string, number>();
-    for( const perfContent of perfVerseCopy ){
-        if( perfContent.hasOwnProperty("type") && perfContent.type == "wrapper" && 
-        perfContent.hasOwnProperty("subtype") && perfContent.subtype == "usfm:w" ){
-            const text = (perfContent?.["content"])?perfContent.content.join(" "):"";
-            const occurrence = (occurrenceMap.get( text ) || 0) + 1;
-            occurrenceMap.set( text, occurrence );
-            if( !perfContent.atts ) perfContent.atts = {};
-            perfContent.atts["x-occurrence" ] = [ "" + occurrence ];
-        }
-    }
-    for( const perfContent of perfVerseCopy ){
-        if( perfContent.hasOwnProperty("type") && perfContent.type == "wrapper" && 
-        perfContent.hasOwnProperty("subtype") && perfContent.subtype == "usfm:w" ){
-            const text = (perfContent?.["content"])?perfContent.content.join(" "):"";
-            if( !perfContent.atts ) perfContent.atts = {};
-            perfContent.atts["x-occurrences" ] = [ "" + occurrenceMap.get( text ) ];
-        }
-    }
-    return perfVerseCopy;
-}
-
-
-async function mergeAlignmentPerf( strippedUsfmPerf: any, strippedAlignment: any ){
-    try{
-        const pipelineH = new PipelineHandler({proskomma: new Proskomma()});
-        const mergeAlignmentPipeline_output = await pipelineH.runPipeline('mergeAlignmentPipeline', {
-            perf: strippedUsfmPerf,
-            strippedAlignment,
-        });
-        return mergeAlignmentPipeline_output.perf;
-    }catch( e ){
-        console.log( e );
-    }
-    return undefined;
-}
-
-function replaceAlignmentsInPerfVerse( perfVerse: any, newAlignments: any ): any[]{
-    const result : any[] = [];
-
-    const withoutOldAlignments = perfVerse.filter( ( perfContent : any ) => {
-        if( perfContent.hasOwnProperty("type") && 
-        (perfContent.type == "start_milestone" || perfContent.type == "end_milestone") &&
-        perfContent.hasOwnProperty("subtype") && perfContent.subtype == "usfm:zaln" ){
-            return false;
-        }
-        return true;
-    });
-
-    //this indicates what the current source alignment stack is so we know when it needs to change.
-    let currentSourceAlignmentHash = "";
-    let currentSourceAlignmentLength = 0;
-
-    //hash each of the target words to the alignment which contains them.
-    const targetWordHashToAlignment = new Map<string, any>();
-    for( const alignment of newAlignments ){
-        for( const targetWord of alignment.targetNgram ){
-            targetWordHashToAlignment.set( hashWordToString( targetWord ), alignment );
-        }
-    }
-
-    const closeSourceRange = () => {
-        //we can just put it at the end but we will instead look backwards and find the last place
-        //a word wrapper is and put it after that.
-        let lastWordIndex = result.length - 1;
-        while( lastWordIndex >= 0 && 
-         !(result[lastWordIndex].hasOwnProperty("type"   ) && result[lastWordIndex].type    == "wrapper" && 
-           result[lastWordIndex].hasOwnProperty("subtype") && result[lastWordIndex].subtype == "usfm:w") ){
-            lastWordIndex--;
-        }
-
-        //take out the old source alignment
-        //by inserting in after lastWordIndex
-        for( let i = 0; i < currentSourceAlignmentLength; i++ ){
-            const newEndMilestone : any = { 
-                type: "end_milestone", 
-                subtype: "usfm:zaln"
-            }
-            result.splice( lastWordIndex + i + 1, 0, newEndMilestone );
-        }
-    };
-
-    for( const perfContent of withoutOldAlignments ){
-        //Only do something different if it is a wrapped word.
-        if( perfContent.hasOwnProperty("type") && perfContent.type == "wrapper" && 
-        perfContent.hasOwnProperty("subtype") && perfContent.subtype == "usfm:w" ){
-            
-            const relevantAlignment = targetWordHashToAlignment.get( hashWordToString( perfContentToTWord( perfContent ) ) );
-
-            //If the current currentSourceAlignmentHash is not correct and it is set we need to close it out.
-            if( currentSourceAlignmentHash != (hashNgramToString(relevantAlignment?.sourceNgram) ?? "") ){
-                closeSourceRange();
-
-                //add in the new alignment.
-                if( relevantAlignment ){
-                    for( const sourceToken of relevantAlignment.sourceNgram ){
-                        const newStartMilestone : any= {
-                            type: "start_milestone",
-                            subtype: "usfm:zaln",
-                            atts: {}
-                        }
-                        if( sourceToken.hasOwnProperty("strong"     ) ){ newStartMilestone.atts["x-strong"      ] = [ "" + sourceToken.strong         ]; }
-                        if( sourceToken.hasOwnProperty("lemma"      ) ){ newStartMilestone.atts["x-lemma"       ] = [ "" + sourceToken.lemma          ]; }
-                        if( sourceToken.hasOwnProperty("morph"      ) ){ newStartMilestone.atts["x-morph"       ] =        sourceToken.morph.split(","); }
-                        if( sourceToken.hasOwnProperty("occurrence" ) ){ newStartMilestone.atts["x-occurrence"  ] = [ "" + sourceToken.occurrence     ]; }
-                        if( sourceToken.hasOwnProperty("occurrences") ){ newStartMilestone.atts["x-occurrences" ] = [ "" + sourceToken.occurrences    ]; }
-                        if( sourceToken.hasOwnProperty("text"       ) ){ newStartMilestone.atts["x-content"     ] = [ "" + sourceToken.text           ]; }
-                        result.push( newStartMilestone );
-                    }
-                    currentSourceAlignmentHash = hashNgramToString(relevantAlignment.sourceNgram);
-                    currentSourceAlignmentLength = relevantAlignment.sourceNgram.length;
-                }else{
-                    currentSourceAlignmentHash = "";
-                    currentSourceAlignmentLength = 0;
-                }
-            }
-        }
-
-        result.push( perfContent );
-    }
-
-
-    //now close out any remaining source alignment.
-    closeSourceRange();
-    currentSourceAlignmentHash = "";
-    currentSourceAlignmentLength = 0;
-
-    //Note, this will not work correctly if the alignment spans multiple verses.  But we have issues otherwise if this is the case.
-
-    return result;
-}
-
 
 
 async function setAlignmentData( filename: string, data: InternalUsfmJsonFormat, args: { reference: string, newAlignments: any } ): Promise<void>{
@@ -627,6 +81,7 @@ async function setAlignmentData( filename: string, data: InternalUsfmJsonFormat,
 
 
     const targetPerfVerse = pullVerseFromPerf( args.reference, mergedPerf );
+    if( !targetPerfVerse ) return undefined;
 
     const targetPerfVerseReindex = reindexPerfVerse( targetPerfVerse );
 
@@ -647,10 +102,16 @@ async function setAlignmentData( filename: string, data: InternalUsfmJsonFormat,
     return strippedAlign;
 }
 
-async function getAlignmentData( filename: string, data: InternalUsfmJsonFormat, reference: string ): Promise< any | undefined >{
+async function getAlignmentData( filename: string, data: InternalUsfmJsonFormat, reference: string ): Promise< {wordBank: TWord[], alignments: TSourceTargetAlignment[], reference: string} | undefined >{
     if( !reference ) return undefined;
 
-    const sourceUsfm = await getSourceFileForTargetFile( filename );
+    const getConfigurationFunction = async ( section: string ) => {
+        return vscode.workspace?.getConfiguration("usfmEditor").get( section );
+    };
+    const firstWorkSpaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri.fsPath;
+    if( !firstWorkSpaceFolder ) return undefined;
+    
+    const sourceUsfm = await getSourceFileForTargetFile( filename, getConfigurationFunction, firstWorkSpaceFolder );
     if( !sourceUsfm ) return undefined;
 
     const sourceUsfmPerf = usfmToPerf( sourceUsfm );
@@ -664,12 +125,14 @@ async function getAlignmentData( filename: string, data: InternalUsfmJsonFormat,
 
     const sourceVerse = pullVerseFromPerf( reference, sourceUsfmPerf );
     const mergedVerseNotReindexed = pullVerseFromPerf( reference, mergedPerf     );
+    if( !sourceVerse || !mergedVerseNotReindexed ) return undefined;
+
     const mergedVerse = reindexPerfVerse( mergedVerseNotReindexed );
 
     
 
-    const sourceWords = extractWrappedWordsFromPerfVerse( sourceVerse );
-    const targetWords = extractWrappedWordsFromPerfVerse( mergedVerse );
+    const sourceWords = extractWrappedWordsFromPerfVerse( sourceVerse, PRIMARY_WORD );
+    const targetWords = extractWrappedWordsFromPerfVerse( mergedVerse, SECONDARY_WORD );
 
     const alignments = extractAlignmentsFromPerfVerse( mergedVerse );
 
@@ -1109,7 +572,7 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
                                 content: vscode.workspace.getConfiguration('usfmEditor').get(message.content.key, message.content.defaultValue)
                             });
                         }else if( message.command === "getOpenFiles" ){
-                            const openFiles = Array.from(this.webviews.entries()).map( e => e[0] );
+                            const openFiles = Array.from(this.webviews.entries()).map( e => e[0] ).map( e => e.replace("file://", "") );
                             UsfmEditorProvider.alignmentTrainerWorker?.postMessage({
                                 command: "respond",
                                 requestId: message.requestId,
