@@ -5,6 +5,10 @@ var __publicField = (obj, key, value) => {
   return value;
 };
 import { t as typescriptDefaults, m as monaco_editor_core_star } from "./index.js";
+import "prop-types";
+import "word-aligner";
+import "lodash";
+import "bible-reference-range";
 /*!-----------------------------------------------------------------------------
  * Copyright (c) Microsoft Corporation. All rights reserved.
  * Version: 0.45.0(5e5af013f8d295555a7210df0d5f2cea0bf5dd56)

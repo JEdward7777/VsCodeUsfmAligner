@@ -1,9 +1,15 @@
 import React, { useEffect } from 'react';
 //@ts-ignore
-import { SuggestingWordAligner, TAlignerData, TReference, TSourceTargetAlignment, TWord } from 'suggesting-word-aligner-rcl';
+import { SuggestingWordAligner } from 'suggesting-word-aligner-rcl';
+
+import { PRIMARY_WORD, SECONDARY_WORD, TAlignmentSuggestion, TSourceTargetAlignment, 
+    TWord, wordMapAlignmentToTSourceTargetAlignment, wordmapTokenToTWord, 
+    tAlignmentSuggestionToSuggestion, TWordAlignerAlignmentResult } from '../../src/perfUtils';
 
 //import css
 import './AlignmentDialogWrapper.css';
+import { Alignment, Suggestion } from 'wordmap';
+import Lexer, { Token } from 'wordmap-lexer';
 
 
 export interface VersionInfo{
@@ -19,6 +25,7 @@ interface AlignmentDialogWrapperProps {
     alignmentDataVersion: number;
     setAlignmentData: (alignmentData: any, reference: string) => Promise<VersionInfo>;
     getAlignmentData: (reference: string) => Promise<any>;
+    makeAlignmentSuggestions?:                (args:  {sourceSentence: TWord[], targetSentence: TWord[], maxSuggestions: number, manuallyAligned: TSourceTargetAlignment[]}) => Promise<TAlignmentSuggestion[]>;
 }
 
 
@@ -30,14 +37,15 @@ interface AlignmentDialogWrapperState {
     alignmentData?: any | undefined;
     strippedUsfmVersion?: number | undefined;
     alignmentDataVersion?: number | undefined;
-}
+}   
 
 const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
     reference,
     strippedUsfmVersion,
     alignmentDataVersion,
     setAlignmentData,
-    getAlignmentData
+    getAlignmentData,
+    makeAlignmentSuggestions,
 }) => {
 
     //This contains the alignment data for the dialog.  Changing
@@ -93,9 +101,9 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
     }
 
     const alignmentInProcessRef = React.useRef(false);
-    const stashedAlignmentDataToProcess = React.useRef<TAlignerData | undefined>();
+    const stashedAlignmentDataToProcess = React.useRef<TWordAlignerAlignmentResult | undefined>();
 
-    const onAlignmentChange = async (alignmentData: TAlignerData) => {
+    const onAlignmentChange = async (alignmentData: TWordAlignerAlignmentResult) => {
 
         //if the alignment is currently in process, stash the alignment data
         //otherwise process.
@@ -104,12 +112,12 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
             alignmentInProcessRef.current = true;
 
             //init with our own alignment data
-            let currentAlignmentData = alignmentData;
+            let currentAlignmentData : TWordAlignerAlignmentResult | undefined = alignmentData;
             //and keep looping while we pick up new alignments
             while( currentAlignmentData !== undefined ){
 
                 console.log( "AlignmentData before sleep" ); 
-                //sleep to allow the forground machinery priority.
+                //sleep to allow the foreground machinery priority.
                 await new Promise(r => setTimeout(r, 2000));
                 console.log( "AlignmentData after sleep"  ); 
         
@@ -118,7 +126,7 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
                 versionRefs.current.alignmentDataVersion = Math.max( versionRefs.current.alignmentDataVersion, newVersionRefs.alignmentDataVersion );
                 versionRefs.current.strippedUsfmVersion = Math.max( versionRefs.current.strippedUsfmVersion, newVersionRefs.strippedUsfmVersion );
 
-                //grab new alignment datas which have been stashed if they exist.
+                //grab new alignment data which have been stashed if they exist.
                 currentAlignmentData = stashedAlignmentDataToProcess.current;
                 stashedAlignmentDataToProcess.current = undefined;
 
@@ -141,6 +149,49 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
     }
 
     console.log( "About to render Alignment dialog wrapper" );
+
+
+//  /**
+//  * @callback AsyncSuggesterCB Takes The source and target translation as well as manual alignments and returns a list of suggestions
+//  * @param {string|array[Token]} source - source translation 
+//  * @param {string|array[Token]} target - target translation
+//  * @param {number} maxSuggestions - max number of suggestions
+//  * @param {array[Alignment]} manualAlignments - array manual alignments
+//  * @return {Promise<array[Suggestion]>} list of suggestions
+//  */
+
+    const asyncSuggester = async ( source: string | Token[], target: string | Token[], maxSuggestions: number, manualAlignments: Alignment[]) : Promise<Suggestion[]> => {
+        if( !makeAlignmentSuggestions ) {
+            return [];
+        }
+
+        let sourceTokens = [];
+        let targetTokens = [];
+
+        if (typeof source === "string") {
+            sourceTokens = Lexer.tokenize(source);
+        } else {
+            sourceTokens = source;
+        }
+
+        if (typeof target === "string") {
+            targetTokens = Lexer.tokenize(target);
+        } else {
+            targetTokens = target;
+        }
+
+        //makeAlignmentSuggestions?: (args:  {sourceSentence: TWord[], targetSentence: TWord[], maxSuggestions: number, manuallyAligned: TSourceTargetAlignment[]}) => Promise<TAlignmentSuggestion[]>;
+
+        //First need to convert sourceTokens into TWords.
+        const sourceSentence = sourceTokens.map((token: Token) => wordmapTokenToTWord( token, PRIMARY_WORD   ));
+        const targetSentence = targetTokens.map((token: Token) => wordmapTokenToTWord( token, SECONDARY_WORD ));
+
+        const manuallyAligned = manualAlignments.map((alignment: Alignment) => wordMapAlignmentToTSourceTargetAlignment(alignment));
+
+        const suggestions = await makeAlignmentSuggestions({ sourceSentence, targetSentence, maxSuggestions, manuallyAligned });
+        
+        return suggestions.map( tAlignmentSuggestionToSuggestion )
+    }
 
     return (
         <div id="AlignmentDialogWrapper">

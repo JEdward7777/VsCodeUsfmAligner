@@ -4,12 +4,13 @@ import path from 'path';
 import crypto from 'crypto';
 import fs from 'fs';
 import zlib from 'zlib';
-import { TSourceTargetAlignment, TTrainingAndTestingData, getAllAlignmentDataFromBook } from "../perfUtils";
+import { TSourceTargetAlignment, TTrainingAndTestingData } from "../perfUtils";
 import { Token } from "wordmap-lexer";
 import { Alignment, Ngram } from "wordmap";
 import { updateTokenLocations } from "wordmapbooster/dist/wordmap_tools";
 import { MorphJLBoostWordMap } from "wordmapbooster/dist/boostwordmap_tools";
 import { Uri } from "vscode";
+import { getAllAlignmentDataFromBook } from "../perfUtilsWithFs";
 
 let nextRequestId : number = 0;
 //callbacks a map from a number to a resolve or reject function

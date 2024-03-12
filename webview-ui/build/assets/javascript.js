@@ -1,5 +1,9 @@
 import { conf as conf$1, language as language$1 } from "./typescript.js";
 import "./index.js";
+import "prop-types";
+import "word-aligner";
+import "lodash";
+import "bible-reference-range";
 /*!-----------------------------------------------------------------------------
  * Copyright (c) Microsoft Corporation. All rights reserved.
  * Version: 0.45.0(5e5af013f8d295555a7210df0d5f2cea0bf5dd56)

@@ -3,6 +3,7 @@ import { useState } from 'react'
 // import viteLogo from '/vite.svg'
 import './App.css'
 import AlignmentDialogWrapper, { VersionInfo } from './AlignmentDialogWrapper';
+import { TAlignmentSuggestion, TSourceTargetAlignment, TSourceTargetPrediction, TWord } from '../../src/perfUtils';
 
 function deepCopy(obj: any): any {
   return JSON.parse(JSON.stringify(obj));
@@ -257,6 +258,10 @@ export default function App() {
     return { strippedUsfmVersion: newDocumentData.strippedUsfm.version, alignmentDataVersion: newDocumentData.alignmentData.version, reference };
   }
 
+  const makeAlignmentSuggestions = async ( args:  {sourceSentence: TWord[], targetSentence: TWord[], maxSuggestions: number, manuallyAligned: TSourceTargetAlignment[]}) : Promise<TAlignmentSuggestion[]> => {
+    return (await postMessageWithResponse( { command: 'makeAlignmentSuggestions', content: getDocumentData(), commandArg: args } )).response;
+  }
+
   //Go ahead and subscribe to the plugin events.
   useEffect(() => {
     const messageEventListener = (e: {data: UsfmMessage}) => {
@@ -332,11 +337,6 @@ export default function App() {
             _callbacksRef.current.delete(e.data.requestId);
           }
         }
-      
-      //TODO: remove this, adding it so the code will compile before I implemented the code
-      //which used postMessageWithResponse
-      }else if( e.data.command === 'noSuchCommand' ){
-        postMessageWithResponse({ command: 'response', requestId: e.data.requestId, response: 'no such command' });
       }
     };
     window.addEventListener('message', messageEventListener);
@@ -382,6 +382,7 @@ export default function App() {
         getAlignmentData={getAlignmentData}
         strippedUsfmVersion={documentDataState?.strippedUsfm?.version}
         alignmentDataVersion={documentDataState?.alignmentData?.version}
+        makeAlignmentSuggestions={makeAlignmentSuggestions}
       />
     </div>
  </>

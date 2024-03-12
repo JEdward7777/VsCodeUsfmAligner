@@ -4,8 +4,8 @@ import {Proskomma} from 'proskomma-core';
 //@ts-ignore
 import {PipelineHandler} from 'proskomma-json-tools';
 
-import path from 'path';
-import fs from 'fs';
+import { Token } from 'wordmap-lexer';
+import { Alignment, Ngram, Prediction, Suggestion } from 'wordmap';
 
 //These types are not official, I add items to these types as
 //I verify they exist.
@@ -27,7 +27,7 @@ interface PerfBlock{
 
 
 //Define an interface PerfVerse which is an array of PerfBlock.
-interface PerfVerse extends Array<PerfBlock> {}
+export interface PerfVerse extends Array<PerfBlock> {}
 
 interface PerfAlignment{
 
@@ -36,7 +36,7 @@ interface PerfAlignment{
 interface PerfSequence{
     blocks?: PerfBlock[],
 }
-interface Perf{
+export interface Perf{
     sequences?: { [key: string]:PerfSequence},
     main_sequence_id?: string,
 }
@@ -74,14 +74,24 @@ export interface TWord{
     index?: number;
 }
 
+export interface TWordAlignerAlignmentResult{
+    targetWords: TWord[];
+    verseAlignments: TSourceTargetAlignment[];
+}
+  
 
     export interface TSourceTargetAlignment{
         sourceNgram: TWord[];
         targetNgram: TWord[];
     }
 
+    export interface TSourceTargetPrediction{
+        alignment: TSourceTargetAlignment;
+        confidence: number;
+    }
+
     export interface TAlignmentSuggestion{
-        alignments: TSourceTargetAlignment[];
+        predictions: TSourceTargetPrediction[];
         confidence: number;
     }
 /*
@@ -94,9 +104,9 @@ export interface TWord{
     interface TTopBottomAlignment{
         topWords: TWord[];
         bottomWords: TWord[];
-    }
+    } 
 
-    interface TAlignerData{
+    export interface TAlignerData{
         wordBank: TWord[];
         alignments: TSourceTargetAlignment[];
     }
@@ -347,6 +357,52 @@ export function replacePerfVerseInPerf( perf :Perf, perfVerse: PerfVerse, refere
     };
 
     return newPerf;
+}
+
+
+export function wordmapTokenToTWord( token: Token, type: string ): TWord {
+    return {
+        type,
+        occurrence: token.occurrence,
+        occurrences: token.occurrences,
+        text: token.toString(),
+        lemma: token.lemma,
+        morph: token.morph,
+        strong: token.strong,
+        disabled: false,
+        index: token.position,
+    };
+}
+
+export function tWordToWordmapToken( tWord: TWord ): Token {
+    return new Token( tWord );
+}
+
+export function wordMapAlignmentToTSourceTargetAlignment( alignment: Alignment ): TSourceTargetAlignment {
+    return {
+        sourceNgram: alignment.sourceNgram.getTokens().map( token => wordmapTokenToTWord( token, PRIMARY_WORD  ) ),
+        targetNgram: alignment.targetNgram.getTokens().map( token => wordmapTokenToTWord( token, SECONDARY_WORD) ),
+    }
+}
+
+export function tSourceTargetAlignmentToWordmapAlignment( tSourceTargetAlignment: TSourceTargetAlignment ): Alignment {
+    return new Alignment(
+        new Ngram( tSourceTargetAlignment.sourceNgram.map( tWordToWordmapToken ) ),
+        new Ngram( tSourceTargetAlignment.targetNgram.map( tWordToWordmapToken ) )
+    );
+}
+
+export function tSourceTargetPredictionToWordmapPrediction( tSourceTargetPrediction: TSourceTargetPrediction ): Prediction {
+    const prediction: Prediction = new Prediction( tSourceTargetAlignmentToWordmapAlignment(tSourceTargetPrediction.alignment) )
+    prediction.setScore( "confidence", tSourceTargetPrediction.confidence );
+    return prediction;
+}
+
+export function tAlignmentSuggestionToSuggestion( tAlignmentSuggestion: TAlignmentSuggestion ): Suggestion {
+    const predictions: Prediction[] = tAlignmentSuggestion.predictions.map( tSourceTargetPredictionToWordmapPrediction );
+    const suggestion: Suggestion = new Suggestion( );
+    predictions.forEach( prediction => suggestion.addPrediction( prediction ) );
+    return suggestion;
 }
 
 
@@ -686,147 +742,4 @@ export async function getSourceFolders( getConfiguration: (key: string) => Promi
 
 
     return sourceFolders;
-}
-
-function computeSourceFilenames(filename: string, sourceFolders: string[]): string[] {
-
-    const transformedFilenames: string[] = [];
-
-    //if sourceFolders is a string wrap it in an array.
-    if (typeof sourceFolders === 'string') { sourceFolders = [sourceFolders]; }
-
-    for (const sourceFolder in sourceFolders) {
-        //get the filename without the path from filename:
-        const filenameWithoutPath = path.basename(filename);
-
-        //now concatenate that onto the sourceFolder path.
-        transformedFilenames.push(path.join(sourceFolders[sourceFolder], filenameWithoutPath));
-    }
-    //return all the matches.
-    return transformedFilenames;
-}
-
-function getFileInWorkspace( filePath: string, firstWorkSpaceFolder: string ): Promise< string | undefined > {
-    //const firstWorkSpaceFolder = vscode.workspace?.workspaceFolders?.[0]?.uri.fsPath;
-    const filePathRebased = firstWorkSpaceFolder ? path.resolve(firstWorkSpaceFolder, filePath) : filePath;
-
-    return new Promise( (resolve, reject) => {
-        fs.readFile(filePathRebased, 'utf8', (err, data) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(data);
-            }
-        });
-    });
-}
-
-
-async function getFirstValidFile( filenames: string[], firstWorkSpaceFolder: string ) : Promise<string | undefined> {
-    for( const filename of filenames ){
-        try{
-            let fileContent = await getFileInWorkspace( filename, firstWorkSpaceFolder );
-            if( fileContent ){
-                return fileContent;
-            }
-        }catch( e ){
-            //ignore
-        }
-    }
-    return undefined;
-}
-
-
-export async function getSourceFileForTargetFile( 
-        filename: string, 
-        getConfiguration: (key: string) => Promise<any>, 
-        firstWorkSpaceFolder: string ) : Promise< string | undefined > {
-    let result = undefined;
-    const baseFilename = path.basename(filename);
-    
-
-    let sourceFolders = await getSourceFolders(getConfiguration);    
-    let sourceFilenames = computeSourceFilenames( filename, sourceFolders );
-    result = await getFirstValidFile( sourceFilenames, firstWorkSpaceFolder );
-
-    if( result === undefined ){
-        //Throw an exception indicating that we can't find the file.
-        throw new Error(`Could not find source file for ${baseFilename}`);
-    }
-    return result;
-}
-
-export async function getAllAlignmentDataFromBook( filename: string, fileContents: string, 
-        getConfiguration: (key: string) => Promise<any>,
-        firstWorkSpaceFolder: string, includeUnfinished: boolean ): Promise< TTrainingAndTestingData | undefined >{
-
-    //TODO: Check if this throws an exception or returns null if it can't find the source files.
-    const sourceUsfm = await getSourceFileForTargetFile( filename , getConfiguration, firstWorkSpaceFolder );
-    if( !sourceUsfm ) return undefined;
-
-    const sourceUsfmPerf : Perf = usfmToPerf( sourceUsfm );
-
-    const targetUsfmPerf : Perf  = usfmToPerf( fileContents );
-
-    //use the file name without the path and the suffix as the book name.
-    const bookName = path.basename(filename).split(".")[0];
-
-    const sourceVerses : { [key: string]: PerfVerse} = pullVersesFromPerf( sourceUsfmPerf );
-    const targetVersesNotReindexed : { [key: string]: PerfVerse} = pullVersesFromPerf( targetUsfmPerf );
-
-
-    const targetVerses : { [key: string]: PerfVerse} = Object.fromEntries( Object.entries( targetVersesNotReindexed ).map( ([reference,targetVerseNotReindexed]: [string, PerfVerse]) => {
-        const targetVerse = reindexPerfVerse( targetVerseNotReindexed );
-        return [reference, targetVerse];
-    }))
-
-    const bookAlignments : { [key: string]: TSourceTargetAlignment[] } = Object.fromEntries( Object.entries( targetVerses ).map( ([reference,targetVerse]: [string, PerfVerse]) => {
-        const alignments = extractAlignmentsFromPerfVerse( targetVerse );
-        return [reference, alignments];
-    }));
-
-
-    const sourceWordsPerVerse = Object.fromEntries( Object.entries( sourceVerses ).map( ([reference,sourceVerse]: [string, PerfVerse]) => {
-          const sourceWords = extractWrappedWordsFromPerfVerse( sourceVerse, PRIMARY_WORD );
-          return [reference, sourceWords];
-    }))
-
-    const supplementedAlignmentsPerVerse = Object.fromEntries( Object.entries( bookAlignments ).map( ([reference,alignments]: [string, TSourceTargetAlignment[]]) => {
-        const sourceWords = sourceWordsPerVerse[reference] ?? [];
-        const supplementedAlignments = sortAndSupplementFromSourceWords( sourceWords, alignments );
-        return [reference, supplementedAlignments];
-    }))
-
-    //Now create the data structure which will be stuffed with the result.
-    const result : TTrainingAndTestingData = {
-        alignments: {},
-        corpus: {},
-    }
-
-    //now loop through all the data and stuff it into the result.
-    Object.entries( supplementedAlignmentsPerVerse ).forEach( ([reference,supplementedAlignments]: [string, TSourceTargetAlignment[]]) => {
-        const expandedReference = `${bookName} ${reference}`;
-
-        const tWordTargetVerse: TWord[] = extractWrappedWordsFromPerfVerse( targetVerses[reference], SECONDARY_WORD );
-        const tWordSourceVerse: TWord[] = extractWrappedWordsFromPerfVerse( sourceVerses[reference], PRIMARY_WORD );
-        result.corpus[expandedReference] = {
-            sourceTokens: tWordSourceVerse,
-            targetTokens: tWordTargetVerse
-        }
-
-        //only add it to the alignments if the alignment is complete so that we don't train on incomplete alignments.
-        const hasEmptySourceNgram = supplementedAlignments.some( (supplementedAlignment: TSourceTargetAlignment) => {
-            return supplementedAlignment.sourceNgram.length === 0;
-        });
-        
-        if( !hasEmptySourceNgram ){
-            result.alignments[expandedReference] = {
-                targetVerse: tWordTargetVerse,
-                sourceVerse: tWordSourceVerse,
-                alignments: supplementedAlignments,
-            }                
-        }
-    })
-
-    return result;
 }

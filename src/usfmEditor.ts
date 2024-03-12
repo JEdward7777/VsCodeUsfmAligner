@@ -9,9 +9,10 @@ import * as path from 'path';
 import { Worker } from 'node:worker_threads';
 import { WorkerMessage } from './workers/alignmentTrainerTypes';
 import { PRIMARY_WORD, SECONDARY_WORD, TSourceTargetAlignment, deepCopy, 
-    extractAlignmentsFromPerfVerse, extractWrappedWordsFromPerfVerse, getSourceFileForTargetFile, 
+    extractAlignmentsFromPerfVerse, extractWrappedWordsFromPerfVerse, 
     mergeAlignmentPerf, pullVerseFromPerf, reindexPerfVerse, replaceAlignmentsInPerfVerse, replacePerfVerseInPerf, 
     sortAndSupplementFromSourceWords, usfmToPerf, TWord, TAlignmentSuggestion } from './perfUtils';
+import { getSourceFileForTargetFile } from './perfUtilsWithFs';
 
 interface InternalUsfmJsonFormat{
     strippedUsfm: {
@@ -612,6 +613,12 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
         }
     }
 
+    
+    async makeAlignmentSuggestions({documentUri, sourceSentence, targetSentence, maxSuggestions, manuallyAligned} : {documentUri: vscode.Uri, sourceSentence: TWord[], targetSentence: TWord[], maxSuggestions: number, manuallyAligned: TSourceTargetAlignment[]}) : Promise<TAlignmentSuggestion[]>{
+        console.log( "making alignment suggestions" );
+        return [];
+    }
+
     //#region CustomEditorProvider
 
     async openCustomDocument(uri: vscode.Uri, openContext: vscode.CustomDocumentOpenContext, token: vscode.CancellationToken): Promise<UsfmDocument> {
@@ -903,14 +910,14 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
                 const filePathRebased = firstWorkSpaceFolder ? path.resolve(firstWorkSpaceFolder, filePath) : filePath;
 
                 if (filePathRebased) {
-                    fs.readFile(filePathRebased, 'utf8', (err, data) => {
-                        if (err) {
+                    fs.readFile(filePathRebased, 'utf8', (error, data) => {
+                        if (error) {
                             // Handle error
-                            console.error(err);
+                            console.error(error);
                             webviewPanel.webview.postMessage({
                                 command: 'response',
                                 requestId: message.requestId,
-                                error: err
+                                error
                             });
                         } else {
                             webviewPanel.webview.postMessage({
@@ -938,11 +945,11 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
                         requestId: message.requestId,
                         response
                     });
-                }).catch( err => {
+                }).catch( error => {
                     webviewPanel.webview.postMessage({
                         command: 'response',
                         requestId: message.requestId,
-                        error: err
+                        error
                     });
                 });
                 break;
@@ -953,16 +960,33 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
                         requestId: message.requestId,
                         response
                     });
-                }).catch( err => {
+                }).catch( error => {
                     webviewPanel.webview.postMessage({
                         command: 'response',
                         requestId: message.requestId,
-                        error: err
+                        error
                     });
-                })
+                });
+                break;
+            case 'makeAlignmentSuggestions':
+                this.makeAlignmentSuggestions( { documentUri: document.uri.fsPath, ...message.commandArg! }  ).then( response => {
+                    webviewPanel.webview.postMessage({
+                        command: 'response',
+                        requestId: message.requestId,
+                        response
+                    });
+                }).catch( error => {
+                    webviewPanel.webview.postMessage({
+                        command: 'response',
+                        requestId: message.requestId,
+                        error
+                    });
+                });
                 break;
         }
     }
+
+    
 
     private updateUsfmDocument(document: UsfmDocument, data: UsfmMessage, webviewPanel: vscode.WebviewPanel) {
         if( document.isClosed ) { return; }

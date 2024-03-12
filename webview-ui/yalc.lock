@@ -1,0 +1,9 @@
+{
+  "version": "v1",
+  "packages": {
+    "suggesting-word-aligner-rcl": {
+      "signature": "f65dece753e2052833f969c217057422",
+      "file": true
+    }
+  }
+}
