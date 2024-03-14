@@ -50,8 +50,8 @@ export const PRIMARY_WORD = 'primaryWord';
 export interface TWord{
     type: string;
 
-    occurrence?: number | string;
-    occurrences?: number | string;
+    occurrence?: number;
+    occurrences?: number;
 
     // position?: number;
 
@@ -80,20 +80,20 @@ export interface TWordAlignerAlignmentResult{
 }
   
 
-    export interface TSourceTargetAlignment{
-        sourceNgram: TWord[];
-        targetNgram: TWord[];
-    }
+export interface TSourceTargetAlignment{
+    sourceNgram: TWord[];
+    targetNgram: TWord[];
+}
 
-    export interface TSourceTargetPrediction{
-        alignment: TSourceTargetAlignment;
-        confidence: number;
-    }
+export interface TSourceTargetPrediction{
+    alignment: TSourceTargetAlignment;
+    confidence: number;
+}
 
-    export interface TAlignmentSuggestion{
-        predictions: TSourceTargetPrediction[];
-        confidence: number;
-    }
+export interface TAlignmentSuggestion{
+    predictions: TSourceTargetPrediction[];
+    confidence: number;
+}
 /*
     export interface TSourceTargetSuggestion{
         alignment: TSourceTargetAlignment;
@@ -359,6 +359,42 @@ export function replacePerfVerseInPerf( perf :Perf, perfVerse: PerfVerse, refere
     return newPerf;
 }
 
+// /**
+//  * Adds the indexing location into tokens similar to tokenizeWords in Lexer.
+//  * https://github.com/unfoldingWord/wordMAP-lexer/blob/develop/src/Lexer.ts#L20
+//  * @param inputTokens - an array Wordmap Token objects.
+//  * @param sentenceCharLength - the length of the sentence in characters
+//  */
+// export function updateTokenLocations(inputTokens : Token[], sentenceCharLength : number = -1) : void {
+//     if (sentenceCharLength === -1) {
+//         sentenceCharLength = inputTokens.map( t => t.toString() ).join(" ").length;
+//     }
+  
+//     //const tokens: {text: string, position: number, characterPosition: number, sentenceTokenLen: number, sentenceCharLen: number, occurrence: number}[] = [];
+//     let charPos = 0;
+//     let tokenCount = 0;
+//     const occurrenceIndex : {[key: string]: number }= {};
+//     for (const inputToken of inputTokens) {
+//         if (!occurrenceIndex[inputToken.toString()]) {
+//             occurrenceIndex[inputToken.toString()] = 0;
+//         }
+//         occurrenceIndex[inputToken.toString()] += 1;
+//         (inputToken as any).inputToken.tokenPos = tokenCount;
+//         (inputToken as any).charPos = charPos;
+//         (inputToken as any).sentenceTokenLen = inputTokens.length;
+//         (inputToken as any).sentenceCharLen = sentenceCharLength;
+//         (inputToken as any).tokenOccurrence = occurrenceIndex[inputToken.toString()];
+//         tokenCount++;
+//         charPos += inputToken.toString().length;
+//     }
+  
+//     // Finish adding occurrence information
+//     for( const t of inputTokens){
+//       (t as any).tokenOccurrences = occurrenceIndex[t.toString()];
+//     }
+//   }
+  
+
 
 export function wordmapTokenToTWord( token: Token, type: string ): TWord {
     return {
@@ -398,11 +434,27 @@ export function tSourceTargetPredictionToWordmapPrediction( tSourceTargetPredict
     return prediction;
 }
 
-export function tAlignmentSuggestionToSuggestion( tAlignmentSuggestion: TAlignmentSuggestion ): Suggestion {
+export function wordmapPredictionToTSourceTargetPrediction( prediction: Prediction ): TSourceTargetPrediction {
+    return {
+        alignment: wordMapAlignmentToTSourceTargetAlignment( prediction.alignment ),
+        confidence: prediction.getScore("confidence")
+    }
+}
+
+export function tAlignmentSuggestionToWordmapSuggestion( tAlignmentSuggestion: TAlignmentSuggestion ): Suggestion {
     const predictions: Prediction[] = tAlignmentSuggestion.predictions.map( tSourceTargetPredictionToWordmapPrediction );
     const suggestion: Suggestion = new Suggestion( );
-    predictions.forEach( prediction => suggestion.addPrediction( prediction ) );
+    //The tokens in the prediction don't have their index set so using the addPrediction gets the alignments all of order.
+    //predictions.forEach( prediction => suggestion.addPrediction( prediction ) );
+    (suggestion as any).predictions.push( ...predictions );
     return suggestion;
+}
+
+export function wordmapSuggestionToTAlignmentSuggestion( suggestion: Suggestion ): TAlignmentSuggestion {
+    return {
+        predictions: suggestion.getPredictions().map( prediction => wordmapPredictionToTSourceTargetPrediction( prediction ) ),
+        confidence: suggestion.compoundConfidence()
+    }
 }
 
 
@@ -411,15 +463,15 @@ function perfContentToTWord( perfContent: any, type: string ): TWord {
         type
     };
 
-    if (perfContent?.atts?.["x-occurrence" ] ) { word["occurrence" ] = perfContent.atts["x-occurrence" ].join(" "); }
-    if (perfContent?.atts?.["x-occurrences"] ) { word["occurrences"] = perfContent.atts["x-occurrences"].join(" "); }
-    if (perfContent?.atts?.["x-content"    ] ) { word["text"       ] = perfContent.atts["x-content"    ].join(" "); }
-    if (perfContent?.      ["content"      ] ) { word["text"       ] = perfContent.content              .join(" "); }
-    if (perfContent?.atts?.["x-lemma"      ] ) { word["lemma"      ] = perfContent.atts["x-lemma"      ].join(" "); }
-    if (perfContent?.atts?.["lemma"        ] ) { word["lemma"      ] = perfContent.atts["lemma"        ].join(" "); }
-    if (perfContent?.atts?.["x-morph"      ] ) { word["morph"      ] = perfContent.atts["x-morph"      ].join(","); }
-    if (perfContent?.atts?.["x-strong"     ] ) { word["strong"     ] = perfContent.atts["x-strong"     ].join(" "); }
-    if (perfContent?.atts?.["strong"       ] ) { word["strong"     ] = perfContent.atts["strong"       ].join(" "); }
+    if (perfContent?.atts?.["x-occurrence" ] ) { word["occurrence" ] = parseInt(perfContent.atts["x-occurrence" ].join(" ")); }
+    if (perfContent?.atts?.["x-occurrences"] ) { word["occurrences"] = parseInt(perfContent.atts["x-occurrences"].join(" ")); }
+    if (perfContent?.atts?.["x-content"    ] ) { word["text"       ] =          perfContent.atts["x-content"    ].join(" ");  }
+    if (perfContent?.      ["content"      ] ) { word["text"       ] =          perfContent.content              .join(" ");  }
+    if (perfContent?.atts?.["x-lemma"      ] ) { word["lemma"      ] =          perfContent.atts["x-lemma"      ].join(" ");  }
+    if (perfContent?.atts?.["lemma"        ] ) { word["lemma"      ] =          perfContent.atts["lemma"        ].join(" ");  }
+    if (perfContent?.atts?.["x-morph"      ] ) { word["morph"      ] =          perfContent.atts["x-morph"      ].join(",");  }
+    if (perfContent?.atts?.["x-strong"     ] ) { word["strong"     ] =          perfContent.atts["x-strong"     ].join(" ");  }
+    if (perfContent?.atts?.["strong"       ] ) { word["strong"     ] =          perfContent.atts["strong"       ].join(" ");  }
     return word;
 }
 
@@ -743,3 +795,6 @@ export async function getSourceFolders( getConfiguration: (key: string) => Promi
 
     return sourceFolders;
 }
+
+
+

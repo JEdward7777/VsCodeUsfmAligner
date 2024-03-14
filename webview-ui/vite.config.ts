@@ -8,6 +8,7 @@ export default defineConfig({
   build: {
     outDir: "build",
     minify: false,
+    sourcemap: 'inline',
     rollupOptions: {
       output: {
         entryFileNames: `assets/[name].js`,

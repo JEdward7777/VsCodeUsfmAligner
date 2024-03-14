@@ -1,7 +1,6 @@
 import { parentPort } from "node:worker_threads";
 import { WorkerMessage } from "./alignmentTrainerTypes";
 import path from 'path';
-import crypto from 'crypto';
 import fs from 'fs';
 import zlib from 'zlib';
 import { TSourceTargetAlignment, TTrainingAndTestingData } from "../perfUtils";
@@ -10,7 +9,7 @@ import { Alignment, Ngram } from "wordmap";
 import { updateTokenLocations } from "wordmapbooster/dist/wordmap_tools";
 import { MorphJLBoostWordMap } from "wordmapbooster/dist/boostwordmap_tools";
 import { Uri } from "vscode";
-import { getAllAlignmentDataFromBook } from "../perfUtilsWithFs";
+import { bookGroupToModelName, getAllAlignmentDataFromBook, getBookGroups } from "../perfUtilsWithFs";
 
 let nextRequestId : number = 0;
 //callbacks a map from a number to a resolve or reject function
@@ -75,109 +74,6 @@ async function getFileStat( filePath: string ){
     }
 }
 
-
-async function getBookGroups(){
-    const bookGroupsString = await getConfiguration( "alignmentTraining.bookGroups", "" );
-
-    const workspaceFolders = await getWorkspaceFolders() ?? [];
-    
-    //now I will split the book groups into groups, split by blank lines.
-    const bookGroups : string[][] = [];
-
-    //only process the bookGroups if we have some workspaceFolders.
-    if( workspaceFolders.length === 0 ){
-        return bookGroups;
-    }
-
-    
-    const lines = bookGroupsString.split( "\n" );
-    let currentGroup : string[] = [];
-    for( const line of lines ){
-        if( line.trim() ){
-            currentGroup.push( line );
-        }else{
-            if( currentGroup.length > 0 ){
-                bookGroups.push( currentGroup );
-                currentGroup = [];
-            }
-        }
-    }
-    if( currentGroup.length > 0 ){
-        bookGroups.push( currentGroup );
-        currentGroup = [];
-    }
-
-    //Now I need to path join these with the first folder in the workspace.
-    for( let i = 0; i < bookGroups.length; i++ ){
-        bookGroups[i] = bookGroups[i].map( b => path.join( workspaceFolders[0].uri.path, b ) ).map( b => path.normalize( b ) );
-    }
-
-    //now see if the usfm files which are currently open are represented, otherwise add each of them as their own group.
-    const openFiles = (await getOpenFiles()).map( f => path.normalize( f ) );
-    for( const openFile of openFiles ){
-        if( !bookGroups.some( b => b.includes( openFile ) ) ){
-            bookGroups.push( [openFile] );
-        }
-    }
-
-    return bookGroups;
-}
-
-async function filenameToBookGroup( filename: string ) : Promise<string[] | undefined> {
-    const bookGroups = await getBookGroups();
-    //convert the bookGroups into canonical paths.
-    const bookGroupsCanonical = bookGroups.map( b => b.map( f => path.normalize( f ) ) );
-    const filenameCanonical = path.normalize( filename );
-
-    //need to see if we can find the filenameCanonical in any of the bookGroupsCanonical
-    //But we have to return the original non-canonical path.
-    //iterate over bookGroupsCanonical but have the index in the loop.
-    for( let i = 0; i < bookGroupsCanonical.length; i++ ){
-        if( bookGroupsCanonical[i].includes( filenameCanonical ) ){
-            return bookGroups[i];
-        }
-    }
-    return undefined;
-}
-
-function bookGroupToModelName( bookGroup: string[] ){
-    //The output will have the same path as the first entry.
-    //The name will have the first entry to the second entry (unless it is just one entry)
-    //Plus 4 characters of a hash of the entire string joined with \n's.
-    //We only need a hash if there are more then two to represent the missing books.
-    //The point is that if any of the books are to change, the name of the model would change.
-
-    if( bookGroup.length === 0 ) return undefined;
-
-    const firstEntry = bookGroup[0];
-
-    const pathOfFirstEntry = path.dirname( firstEntry );
-
-    //Strip off the suffix.
-    const nameOfFirstEntry = path.basename( firstEntry ).split(".")[0];
-    const nameOfLastEntry = path.basename( bookGroup[bookGroup.length-1] ).split(".")[0];
-
-    let result = nameOfFirstEntry;
-    if( bookGroup.length > 2 ){
-        result += "_to_";
-    }else if( bookGroup.length > 1 ){
-        result += "_";
-    }
-    if( bookGroup.length > 1 ) result += nameOfLastEntry;
-
-    if( bookGroup.length > 2 ){
-        const fullStringJoin = bookGroup.join( "\n" );
-        const hash = crypto.createHash( "md5" );
-        hash.update( fullStringJoin );
-        result += "_" + hash.digest("hex").substring(0, 4);
-    }
-
-    //now tack a .model onto the end.
-    result += ".model";
-
-    //and put the path on the front.
-    return path.join( pathOfFirstEntry, result );
-}
 
 async function getNeedsTraining( bookGroup: string[] ){
     //The way we tell if this book group needs training
@@ -325,8 +221,15 @@ async function trainBookGroup( bookGroup: string[] ){
             alignments: { ...accumulator.alignments, ...remappedAlignments },
             corpus:     { ...accumulator.corpus    , ...remappedCorpus     }
         };
-        //TODO: make it so that alignments and corpus which come back do not collide with each other.
     }, Promise.resolve({ alignments: {}, corpus: {} }));
+
+    //now filter out incomplete alignments so that we don't train on incomplete work.
+    bookAlignments.alignments = Object.fromEntries( Object.entries(bookAlignments.alignments).filter( ([reference,verseData]) => {
+        //return true if every alignment in verseData.alignments has a non zero length target.
+        return Object.values(verseData.alignments).every( (alignment) => {
+            return alignment.targetNgram.length > 0;
+        });
+    }));
 
     //Do the actual training.
     console.log( "worker: Training...");
@@ -343,7 +246,7 @@ async function trainBookGroup( bookGroup: string[] ){
             //I would also like to gzip it on the way out because we can and that will save space.
             const modelJson = JSON.stringify( model.save() );
             //now gzip the string.
-            const gzip = zlib.createGzip();
+            const gzip = zlib.createGzip({level: 9});
             const gzipStream = gzip.pipe(fs.createWriteStream( tempPath ));
 
             return new Promise( (resolve, reject) => {
@@ -354,8 +257,8 @@ async function trainBookGroup( bookGroup: string[] ){
                     .catch(reject); // Directly pass error to rejection
                 });
                 gzipStream.on('error', reject);
-                gzipStream.write( modelJson );
-                gzipStream.end();
+                gzip.write( modelJson );
+                gzip.end();
             });
         }
         await replaceModel();
@@ -372,8 +275,8 @@ async function trainModels(){
             //to do we will set it to false again.
             done = true;
 
-
-            const bookGroups : string[][] = await getBookGroups();
+            const bookGroups : string[][] | undefined = await getBookGroups(
+                getConfiguration,getWorkspaceFolders,getOpenFiles);
 
             // //run through each of the open editors and make sure there is a book group for it.
             // const openEditorFilenames = await getOpenFiles();

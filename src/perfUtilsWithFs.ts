@@ -1,6 +1,10 @@
 import path from 'path';
+import crypto from 'crypto';
 import fs from 'fs';
+import * as zlib from 'zlib';
+import { Uri, WorkspaceFolder } from "vscode";
 import { PRIMARY_WORD, Perf, PerfVerse, SECONDARY_WORD, TSourceTargetAlignment, TTrainingAndTestingData, TWord, extractAlignmentsFromPerfVerse, extractWrappedWordsFromPerfVerse, getSourceFolders, pullVersesFromPerf, reindexPerfVerse, sortAndSupplementFromSourceWords, usfmToPerf } from './perfUtils';
+import { AbstractWordMapWrapper } from 'wordmapbooster/dist/boostwordmap_tools';
 
 
 function computeSourceFilenames(filename: string, sourceFolders: string[]): string[] {
@@ -76,73 +80,230 @@ export async function getAllAlignmentDataFromBook( filename: string, fileContent
     getConfiguration: (key: string) => Promise<any>,
     firstWorkSpaceFolder: string, includeUnfinished: boolean ): Promise< TTrainingAndTestingData | undefined >{
 
-//TODO: Check if this throws an exception or returns null if it can't find the source files.
-const sourceUsfm = await getSourceFileForTargetFile( filename , getConfiguration, firstWorkSpaceFolder );
-if( !sourceUsfm ) return undefined;
+    //TODO: Check if this throws an exception or returns null if it can't find the source files.
+    const sourceUsfm = await getSourceFileForTargetFile( filename , getConfiguration, firstWorkSpaceFolder );
+    if( !sourceUsfm ) return undefined;
 
-const sourceUsfmPerf : Perf = usfmToPerf( sourceUsfm );
+    const sourceUsfmPerf : Perf = usfmToPerf( sourceUsfm );
 
-const targetUsfmPerf : Perf  = usfmToPerf( fileContents );
+    const targetUsfmPerf : Perf  = usfmToPerf( fileContents );
 
-//use the file name without the path and the suffix as the book name.
-const bookName = path.basename(filename).split(".")[0];
+    //use the file name without the path and the suffix as the book name.
+    const bookName = path.basename(filename).split(".")[0];
 
-const sourceVerses : { [key: string]: PerfVerse} = pullVersesFromPerf( sourceUsfmPerf );
-const targetVersesNotReindexed : { [key: string]: PerfVerse} = pullVersesFromPerf( targetUsfmPerf );
-
-
-const targetVerses : { [key: string]: PerfVerse} = Object.fromEntries( Object.entries( targetVersesNotReindexed ).map( ([reference,targetVerseNotReindexed]: [string, PerfVerse]) => {
-    const targetVerse = reindexPerfVerse( targetVerseNotReindexed );
-    return [reference, targetVerse];
-}))
-
-const bookAlignments : { [key: string]: TSourceTargetAlignment[] } = Object.fromEntries( Object.entries( targetVerses ).map( ([reference,targetVerse]: [string, PerfVerse]) => {
-    const alignments = extractAlignmentsFromPerfVerse( targetVerse );
-    return [reference, alignments];
-}));
+    const sourceVerses : { [key: string]: PerfVerse} = pullVersesFromPerf( sourceUsfmPerf );
+    const targetVersesNotReindexed : { [key: string]: PerfVerse} = pullVersesFromPerf( targetUsfmPerf );
 
 
-const sourceWordsPerVerse = Object.fromEntries( Object.entries( sourceVerses ).map( ([reference,sourceVerse]: [string, PerfVerse]) => {
-      const sourceWords = extractWrappedWordsFromPerfVerse( sourceVerse, PRIMARY_WORD );
-      return [reference, sourceWords];
-}))
+    const targetVerses : { [key: string]: PerfVerse} = Object.fromEntries( Object.entries( targetVersesNotReindexed ).map( ([reference,targetVerseNotReindexed]: [string, PerfVerse]) => {
+        const targetVerse = reindexPerfVerse( targetVerseNotReindexed );
+        return [reference, targetVerse];
+    }))
 
-const supplementedAlignmentsPerVerse = Object.fromEntries( Object.entries( bookAlignments ).map( ([reference,alignments]: [string, TSourceTargetAlignment[]]) => {
-    const sourceWords = sourceWordsPerVerse[reference] ?? [];
-    const supplementedAlignments = sortAndSupplementFromSourceWords( sourceWords, alignments );
-    return [reference, supplementedAlignments];
-}))
+    const bookAlignments : { [key: string]: TSourceTargetAlignment[] } = Object.fromEntries( Object.entries( targetVerses ).map( ([reference,targetVerse]: [string, PerfVerse]) => {
+        const alignments = extractAlignmentsFromPerfVerse( targetVerse );
+        return [reference, alignments];
+    }));
 
-//Now create the data structure which will be stuffed with the result.
-const result : TTrainingAndTestingData = {
-    alignments: {},
-    corpus: {},
+
+    const sourceWordsPerVerse = Object.fromEntries( Object.entries( sourceVerses ).map( ([reference,sourceVerse]: [string, PerfVerse]) => {
+        const sourceWords = extractWrappedWordsFromPerfVerse( sourceVerse, PRIMARY_WORD );
+        return [reference, sourceWords];
+    }))
+
+    const supplementedAlignmentsPerVerse = Object.fromEntries( Object.entries( bookAlignments ).map( ([reference,alignments]: [string, TSourceTargetAlignment[]]) => {
+        const sourceWords = sourceWordsPerVerse[reference] ?? [];
+        const supplementedAlignments = sortAndSupplementFromSourceWords( sourceWords, alignments );
+        return [reference, supplementedAlignments];
+    }))
+
+    //Now create the data structure which will be stuffed with the result.
+    const result : TTrainingAndTestingData = {
+        alignments: {},
+        corpus: {},
+    }
+
+    //now loop through all the data and stuff it into the result.
+    Object.entries( supplementedAlignmentsPerVerse ).forEach( ([reference,supplementedAlignments]: [string, TSourceTargetAlignment[]]) => {
+        const expandedReference = `${bookName} ${reference}`;
+
+        const tWordTargetVerse: TWord[] = extractWrappedWordsFromPerfVerse( targetVerses[reference], SECONDARY_WORD );
+        const tWordSourceVerse: TWord[] = extractWrappedWordsFromPerfVerse( sourceVerses[reference], PRIMARY_WORD );
+        result.corpus[expandedReference] = {
+            sourceTokens: tWordSourceVerse,
+            targetTokens: tWordTargetVerse
+        }
+
+        //only add it to the alignments if the alignment is complete so that we don't train on incomplete alignments.
+        const hasEmptySourceNgram = supplementedAlignments.some( (supplementedAlignment: TSourceTargetAlignment) => {
+            return supplementedAlignment.sourceNgram.length === 0;
+        });
+        
+        if( !hasEmptySourceNgram ){
+            result.alignments[expandedReference] = {
+                targetVerse: tWordTargetVerse,
+                sourceVerse: tWordSourceVerse,
+                alignments: supplementedAlignments,
+            }                
+        }
+    })
+
+    return result;
 }
 
-//now loop through all the data and stuff it into the result.
-Object.entries( supplementedAlignmentsPerVerse ).forEach( ([reference,supplementedAlignments]: [string, TSourceTargetAlignment[]]) => {
-    const expandedReference = `${bookName} ${reference}`;
 
-    const tWordTargetVerse: TWord[] = extractWrappedWordsFromPerfVerse( targetVerses[reference], SECONDARY_WORD );
-    const tWordSourceVerse: TWord[] = extractWrappedWordsFromPerfVerse( sourceVerses[reference], PRIMARY_WORD );
-    result.corpus[expandedReference] = {
-        sourceTokens: tWordSourceVerse,
-        targetTokens: tWordTargetVerse
+
+export function bookGroupToModelName( bookGroup: string[] ){
+    //The output will have the same path as the first entry.
+    //The name will have the first entry to the second entry (unless it is just one entry)
+    //Plus 4 characters of a hash of the entire string joined with \n's.
+    //We only need a hash if there are more then two to represent the missing books.
+    //The point is that if any of the books are to change, the name of the model would change.
+
+    if( bookGroup.length === 0 ) return undefined;
+
+    const firstEntry = bookGroup[0];
+
+    const pathOfFirstEntry = path.dirname( firstEntry );
+
+    //Strip off the suffix.
+    const nameOfFirstEntry = path.basename( firstEntry ).split(".")[0];
+    const nameOfLastEntry = path.basename( bookGroup[bookGroup.length-1] ).split(".")[0];
+
+    let result = nameOfFirstEntry;
+    if( bookGroup.length > 2 ){
+        result += "_to_";
+    }else if( bookGroup.length > 1 ){
+        result += "_";
+    }
+    if( bookGroup.length > 1 ) result += nameOfLastEntry;
+
+    if( bookGroup.length > 2 ){
+        const fullStringJoin = bookGroup.join( "\n" );
+        const hash = crypto.createHash( "md5" );
+        hash.update( fullStringJoin );
+        result += "_" + hash.digest("hex").substring(0, 4);
     }
 
-    //only add it to the alignments if the alignment is complete so that we don't train on incomplete alignments.
-    const hasEmptySourceNgram = supplementedAlignments.some( (supplementedAlignment: TSourceTargetAlignment) => {
-        return supplementedAlignment.sourceNgram.length === 0;
-    });
+    //now tack a .model onto the end.
+    result += ".model";
+
+    //and put the path on the front.
+    return path.join( pathOfFirstEntry, result );
+}
+
+
+export async function getBookGroups( 
+        getConfiguration: ( key: string, defaultValue: string ) => Promise<string>,
+        getWorkspaceFolders: () => Promise<readonly WorkspaceFolder[]| undefined>,
+        getOpenFiles: () => Promise<string[]>){
+    const bookGroupsString = await getConfiguration( "alignmentTraining.bookGroups", "" );
+
+    const workspaceFolders = await getWorkspaceFolders() ?? [];
     
-    if( !hasEmptySourceNgram ){
-        result.alignments[expandedReference] = {
-            targetVerse: tWordTargetVerse,
-            sourceVerse: tWordSourceVerse,
-            alignments: supplementedAlignments,
-        }                
-    }
-})
+    //now I will split the book groups into groups, split by blank lines.
+    const bookGroups : string[][] = [];
 
-return result;
+    //only process the bookGroups if we have some workspaceFolders.
+    if( workspaceFolders.length === 0 ){
+        return bookGroups;
+    }
+
+    
+    const lines = bookGroupsString.split( "\n" );
+    let currentGroup : string[] = [];
+    for( const line of lines ){
+        if( line.trim() ){
+            currentGroup.push( line );
+        }else{
+            if( currentGroup.length > 0 ){
+                bookGroups.push( currentGroup );
+                currentGroup = [];
+            }
+        }
+    }
+    if( currentGroup.length > 0 ){
+        bookGroups.push( currentGroup );
+        currentGroup = [];
+    }
+
+    //Now I need to path join these with the first folder in the workspace.
+    for( let i = 0; i < bookGroups.length; i++ ){
+        bookGroups[i] = bookGroups[i].map( b => path.join( workspaceFolders[0].uri.path, b ) ).map( b => path.normalize( b ) );
+    }
+
+    //now see if the usfm files which are currently open are represented, otherwise add each of them as their own group.
+    const openFiles = (await getOpenFiles()).map( f => path.normalize( f ) );
+    for( const openFile of openFiles ){
+        if( !bookGroups.some( b => b.includes( openFile ) ) ){
+            bookGroups.push( [openFile] );
+        }
+    }
+
+    return bookGroups;
+}
+
+
+export async function filenameToBookGroup( filename: string,
+        getConfiguration: ( key: string, defaultValue: string ) => Promise<string>,
+        getWorkspaceFolders: () => Promise<readonly WorkspaceFolder[]| undefined>,
+        getOpenFiles: () => Promise<string[]> ) : Promise<string[] | undefined> {
+    const bookGroups = await getBookGroups( getConfiguration, getWorkspaceFolders, getOpenFiles );
+    //convert the bookGroups into canonical paths.
+    const bookGroupsCanonical = bookGroups.map( b => b.map( f => path.normalize( f ) ) );
+    const filenameCanonical = path.normalize( filename );
+
+    //need to see if we can find the filenameCanonical in any of the bookGroupsCanonical
+    //But we have to return the original non-canonical path.
+    //iterate over bookGroupsCanonical but have the index in the loop.
+    for( let i = 0; i < bookGroupsCanonical.length; i++ ){
+        if( bookGroupsCanonical[i].includes( filenameCanonical ) ){
+            return bookGroups[i];
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Loads and decompresses a JSON file.
+ *
+ * @param {string} filename - The name of the file to load and decompress
+ * @return {Promise<any>} A promise that resolves with the parsed JSON data
+ */
+export function loadAndDecompressJSON(filename: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+        fs.readFile(filename,(err, data) => {
+            if (err) {
+                reject(err);
+                return;
+            }
+
+            zlib.gunzip(data, (err, decompressedData) => {
+            
+                if (err) {
+                    reject(err);
+                    return;
+                }
+
+                try {
+                    const jsonData = JSON.parse(decompressedData.toString());
+                    resolve(jsonData);
+                } catch (error) {
+                    reject(error);
+                }
+            });
+        });
+    });
+}
+
+export async function loadAlignmentModel( modelPath: string ) : Promise<{model: AbstractWordMapWrapper, file_modification_time: number}> {
+    //load the filename,
+    //and then decompress it as a gzip
+    //and then decode it as JSON.
+    //and then pass it to AbstractWordMapWrapper.load
+    const modelJson = await loadAndDecompressJSON( modelPath );
+    const model = AbstractWordMapWrapper.load( modelJson );
+
+    const stat = await fs.promises.stat( modelPath );
+    return { model, file_modification_time: stat.mtimeMs };
 }

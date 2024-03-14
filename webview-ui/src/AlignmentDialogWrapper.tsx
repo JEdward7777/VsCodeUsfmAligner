@@ -4,7 +4,7 @@ import { SuggestingWordAligner } from 'suggesting-word-aligner-rcl';
 
 import { PRIMARY_WORD, SECONDARY_WORD, TAlignmentSuggestion, TSourceTargetAlignment, 
     TWord, wordMapAlignmentToTSourceTargetAlignment, wordmapTokenToTWord, 
-    tAlignmentSuggestionToSuggestion, TWordAlignerAlignmentResult } from '../../src/perfUtils';
+    tAlignmentSuggestionToWordmapSuggestion, TWordAlignerAlignmentResult } from '../../src/perfUtils';
 
 //import css
 import './AlignmentDialogWrapper.css';
@@ -161,6 +161,9 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
 //  */
 
     const asyncSuggester = async ( source: string | Token[], target: string | Token[], maxSuggestions: number, manualAlignments: Alignment[]) : Promise<Suggestion[]> => {
+
+        console.log( "webui: 2 Running asyncSuggester" );
+
         if( !makeAlignmentSuggestions ) {
             return [];
         }
@@ -190,7 +193,7 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
 
         const suggestions = await makeAlignmentSuggestions({ sourceSentence, targetSentence, maxSuggestions, manuallyAligned });
         
-        return suggestions.map( tAlignmentSuggestionToSuggestion )
+        return suggestions.map( tAlignmentSuggestionToWordmapSuggestion )
     }
 
     return (
@@ -215,7 +218,7 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
                     lexicons={{}}
                     loadLexiconEntry={(_arg:any) => { return {} }}
                     onChange={onAlignmentChange}
-                    suggester={undefined}
+                    asyncSuggester={asyncSuggester}
                 />
             )}
         </div>
