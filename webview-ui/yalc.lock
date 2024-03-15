@@ -2,7 +2,7 @@
   "version": "v1",
   "packages": {
     "suggesting-word-aligner-rcl": {
-      "signature": "cb0b962e9abe08e30c59db45465e4053",
+      "signature": "bddf95508454318fb57dbe825ff759de",
       "file": true
     }
   }

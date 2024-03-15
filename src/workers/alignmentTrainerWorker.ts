@@ -117,8 +117,8 @@ async function trainModelForBookGroup( data: TTrainingAndTestingData ){
         // targetVersesTokenized[reference] = wordmapLexer.tokenize(training_data.targetVerse);
         sourceVersesTokenized[reference] = training_data.sourceVerse.map( n => new Token(n) );
         targetVersesTokenized[reference] = training_data.targetVerse.map( n => new Token(n) );
-        updateTokenLocations(sourceVersesTokenized[reference])
-        updateTokenLocations(targetVersesTokenized[reference])
+        updateTokenLocations(sourceVersesTokenized[reference]);
+        updateTokenLocations(targetVersesTokenized[reference]);
     
         
         alignments[reference] = training_data.alignments.map(alignment=>new Alignment( new Ngram( alignment.sourceNgram.map( n => new Token(n) ) ), new Ngram( alignment.targetNgram.map( n => new Token(n) )  ) ) );
@@ -130,9 +130,9 @@ async function trainModelForBookGroup( data: TTrainingAndTestingData ){
     Object.entries(data.corpus).forEach(([reference,training_data])=>{
         sourceCorpusTokenized[reference] = training_data.sourceTokens.map( n => new Token(n) );
         targetCorpusTokenized[reference] = training_data.targetTokens.map( n => new Token(n) );
-        updateTokenLocations(sourceCorpusTokenized[reference])
-        updateTokenLocations(targetCorpusTokenized[reference])
-    })
+        updateTokenLocations(sourceCorpusTokenized[reference]);
+        updateTokenLocations(targetCorpusTokenized[reference]);
+    });
     
     
     //TODO: break the hyper parameters of MorphJLBoostWordMap out into configuration options.
@@ -253,14 +253,14 @@ async function trainBookGroup( bookGroup: string[] ){
                 gzipStream.on('finish', () => {
                     //now move the temp file to the model path
                     fs.promises.rename(tempPath, modelPath)
-                    .then(() => resolve())
+                    .then(resolve)
                     .catch(reject); // Directly pass error to rejection
                 });
                 gzipStream.on('error', reject);
                 gzip.write( modelJson );
                 gzip.end();
             });
-        }
+        };
         await replaceModel();
     }
 }

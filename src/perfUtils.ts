@@ -418,7 +418,7 @@ export function wordMapAlignmentToTSourceTargetAlignment( alignment: Alignment )
     return {
         sourceNgram: alignment.sourceNgram.getTokens().map( token => wordmapTokenToTWord( token, PRIMARY_WORD  ) ),
         targetNgram: alignment.targetNgram.getTokens().map( token => wordmapTokenToTWord( token, SECONDARY_WORD) ),
-    }
+    };
 }
 
 export function tSourceTargetAlignmentToWordmapAlignment( tSourceTargetAlignment: TSourceTargetAlignment ): Alignment {
@@ -429,7 +429,7 @@ export function tSourceTargetAlignmentToWordmapAlignment( tSourceTargetAlignment
 }
 
 export function tSourceTargetPredictionToWordmapPrediction( tSourceTargetPrediction: TSourceTargetPrediction ): Prediction {
-    const prediction: Prediction = new Prediction( tSourceTargetAlignmentToWordmapAlignment(tSourceTargetPrediction.alignment) )
+    const prediction: Prediction = new Prediction( tSourceTargetAlignmentToWordmapAlignment(tSourceTargetPrediction.alignment) );
     prediction.setScore( "confidence", tSourceTargetPrediction.confidence );
     return prediction;
 }
@@ -438,7 +438,7 @@ export function wordmapPredictionToTSourceTargetPrediction( prediction: Predicti
     return {
         alignment: wordMapAlignmentToTSourceTargetAlignment( prediction.alignment ),
         confidence: prediction.getScore("confidence")
-    }
+    };
 }
 
 export function tAlignmentSuggestionToWordmapSuggestion( tAlignmentSuggestion: TAlignmentSuggestion ): Suggestion {
@@ -454,7 +454,7 @@ export function wordmapSuggestionToTAlignmentSuggestion( suggestion: Suggestion 
     return {
         predictions: suggestion.getPredictions().map( prediction => wordmapPredictionToTSourceTargetPrediction( prediction ) ),
         confidence: suggestion.compoundConfidence()
-    }
+    };
 }
 
 
@@ -592,7 +592,7 @@ export function sortAndSupplementFromSourceWords( sourceWords:any, alignments:an
     //now create an array of the sourceWords which are not represented.
     const newSourceWords = sourceWords.filter( ( word : any ) => {
         return !( hashWordToString( word ) in sourceWordHashToExistsBool );
-    })
+    });
 
     //now create bogus alignments for the new source words.
     const newAlignments = newSourceWords.map( ( word : any ) => {
@@ -600,7 +600,7 @@ export function sortAndSupplementFromSourceWords( sourceWords:any, alignments:an
         return {
             sourceNgram: [ word ],
             targetNgram: []
-        }
+        };
     });
 
     //Now create a new list which has both the new alignments and the old alignments
@@ -612,7 +612,7 @@ export function sortAndSupplementFromSourceWords( sourceWords:any, alignments:an
             return {
                 ...sourceWord,
                 index: sourceWordHashToSourceWord[ hashWordToString( sourceWord  )  ]?.index ?? -1
-            }
+            };
         });
         return {
             ...alignment,
@@ -715,7 +715,7 @@ export function replaceAlignmentsInPerfVerse( perfVerse: PerfVerse, newAlignment
             const newEndMilestone : any = { 
                 type: "end_milestone", 
                 subtype: "usfm:zaln"
-            }
+            };
             result.splice( lastWordIndex + i + 1, 0, newEndMilestone );
         }
     };
@@ -738,7 +738,7 @@ export function replaceAlignmentsInPerfVerse( perfVerse: PerfVerse, newAlignment
                             type: "start_milestone",
                             subtype: "usfm:zaln",
                             atts: {}
-                        }
+                        };
                         if( sourceToken.hasOwnProperty("strong"     ) ){ newStartMilestone.atts["x-strong"      ] = [ "" + sourceToken.strong         ]; }
                         if( sourceToken.hasOwnProperty("lemma"      ) ){ newStartMilestone.atts["x-lemma"       ] = [ "" + sourceToken.lemma          ]; }
                         if( sourceToken.hasOwnProperty("morph"      ) ){ newStartMilestone.atts["x-morph"       ] =        sourceToken.morph.split(","); }

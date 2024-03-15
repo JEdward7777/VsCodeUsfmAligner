@@ -68,7 +68,7 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
 
     async function figureAlignmentData( strippedUsfmVersion: number, alignmentDataVersion: number, reference: string ) {
         let alignmentData = await getAlignmentData(reference);
-        console.log( "alignmentData: " + alignmentData );
+        console.log( "webview-ui: alignmentData: " + alignmentData );
         setState({alignmentData,
             strippedUsfmVersion,
             alignmentDataVersion,
@@ -103,7 +103,7 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
     const alignmentInProcessRef = React.useRef(false);
     const stashedAlignmentDataToProcess = React.useRef<TWordAlignerAlignmentResult | undefined>();
 
-    const onAlignmentChange = async (alignmentData: TWordAlignerAlignmentResult) => {
+    const onAlignmentChangeWrapped = async (alignmentData: TWordAlignerAlignmentResult) => {
 
         //if the alignment is currently in process, stash the alignment data
         //otherwise process.
@@ -116,10 +116,10 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
             //and keep looping while we pick up new alignments
             while( currentAlignmentData !== undefined ){
 
-                console.log( "AlignmentData before sleep" ); 
+                console.log( "webview-ui: AlignmentData before sleep" ); 
                 //sleep to allow the foreground machinery priority.
                 await new Promise(r => setTimeout(r, 2000));
-                console.log( "AlignmentData after sleep"  ); 
+                console.log( "webview-ui: AlignmentData after sleep"  ); 
         
                 const newVersionRefs : VersionInfo = await setAlignmentData(currentAlignmentData.verseAlignments, reference);
                 //The max might be superfluous but it's good to be safe.
@@ -131,24 +131,33 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
                 stashedAlignmentDataToProcess.current = undefined;
 
                 if( currentAlignmentData !== undefined ){
-                    console.log( "AlignmentData picked up stashed alignment" );
+                    console.log( "webview-ui: AlignmentData picked up stashed alignment" );
                 }
             }
 
-            console.log( "AlignmentData done processing" );
+            console.log( "webview-ui: AlignmentData done processing" );
 
             //mark that we are done.
             alignmentInProcessRef.current = false;
         }else{
             //stash the alignment data if we are in process
             //overwriting any existing alignment already stashed.
-            console.log( "AlignmentData Stashing alignment data" );
+            console.log( "webview-ui: AlignmentData Stashing alignment data" );
             stashedAlignmentDataToProcess.current = alignmentData;
         }
 
     }
 
-    console.log( "About to render Alignment dialog wrapper" );
+    const onAlignmentChange = (alignmentData: TWordAlignerAlignmentResult) => {
+        //We want this function to return quickly, so I wrapped the contents and am going to
+        //handle the responses with callbacks instead.
+        onAlignmentChangeWrapped(alignmentData).catch( (error) => { 
+            console.log( `webview-ui: Error in onAlignmentChange: ${error}` ); 
+        } );
+
+    }
+
+    console.log( "webview-ui: About to render Alignment dialog wrapper" );
 
 
 //  /**
@@ -162,7 +171,7 @@ const AlignmentDialogWrapper: React.FC<AlignmentDialogWrapperProps> = ({
 
     const asyncSuggester = async ( source: string | Token[], target: string | Token[], maxSuggestions: number, manualAlignments: Alignment[]) : Promise<Suggestion[]> => {
 
-        console.log( "webui: 2 Running asyncSuggester" );
+        console.log( "webview-ui: Running asyncSuggester" );
 
         if( !makeAlignmentSuggestions ) {
             return [];

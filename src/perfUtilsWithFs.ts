@@ -98,7 +98,7 @@ export async function getAllAlignmentDataFromBook( filename: string, fileContent
     const targetVerses : { [key: string]: PerfVerse} = Object.fromEntries( Object.entries( targetVersesNotReindexed ).map( ([reference,targetVerseNotReindexed]: [string, PerfVerse]) => {
         const targetVerse = reindexPerfVerse( targetVerseNotReindexed );
         return [reference, targetVerse];
-    }))
+    }));
 
     const bookAlignments : { [key: string]: TSourceTargetAlignment[] } = Object.fromEntries( Object.entries( targetVerses ).map( ([reference,targetVerse]: [string, PerfVerse]) => {
         const alignments = extractAlignmentsFromPerfVerse( targetVerse );
@@ -109,19 +109,19 @@ export async function getAllAlignmentDataFromBook( filename: string, fileContent
     const sourceWordsPerVerse = Object.fromEntries( Object.entries( sourceVerses ).map( ([reference,sourceVerse]: [string, PerfVerse]) => {
         const sourceWords = extractWrappedWordsFromPerfVerse( sourceVerse, PRIMARY_WORD );
         return [reference, sourceWords];
-    }))
+    }));
 
     const supplementedAlignmentsPerVerse = Object.fromEntries( Object.entries( bookAlignments ).map( ([reference,alignments]: [string, TSourceTargetAlignment[]]) => {
         const sourceWords = sourceWordsPerVerse[reference] ?? [];
         const supplementedAlignments = sortAndSupplementFromSourceWords( sourceWords, alignments );
         return [reference, supplementedAlignments];
-    }))
+    }));
 
     //Now create the data structure which will be stuffed with the result.
     const result : TTrainingAndTestingData = {
         alignments: {},
         corpus: {},
-    }
+    };
 
     //now loop through all the data and stuff it into the result.
     Object.entries( supplementedAlignmentsPerVerse ).forEach( ([reference,supplementedAlignments]: [string, TSourceTargetAlignment[]]) => {
@@ -132,7 +132,7 @@ export async function getAllAlignmentDataFromBook( filename: string, fileContent
         result.corpus[expandedReference] = {
             sourceTokens: tWordSourceVerse,
             targetTokens: tWordTargetVerse
-        }
+        };
 
         //only add it to the alignments if the alignment is complete so that we don't train on incomplete alignments.
         const hasEmptySourceNgram = supplementedAlignments.some( (supplementedAlignment: TSourceTargetAlignment) => {
@@ -144,9 +144,9 @@ export async function getAllAlignmentDataFromBook( filename: string, fileContent
                 targetVerse: tWordTargetVerse,
                 sourceVerse: tWordSourceVerse,
                 alignments: supplementedAlignments,
-            }                
+            };
         }
-    })
+    });
 
     return result;
 }

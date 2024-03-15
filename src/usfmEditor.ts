@@ -606,7 +606,7 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
                             });
                         }
                     }
-                })
+                });
             }else{
                 console.log( "alignment trainer worker already running" );
             }
@@ -632,7 +632,7 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
         const getOpenFiles = async () => {
             const openFiles = Array.from(this.webviews.entries()).map( e => e[0] ).map( e => e.replace("file://", "") );
             return openFiles;
-        }
+        };
 
         //first figure out what the filename is for this document
         const bookGroup = await filenameToBookGroup( documentUri.fsPath,  getConfigurationFunction,
@@ -776,7 +776,7 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
     public saveCustomDocument(document: UsfmDocument, cancellation: vscode.CancellationToken): Thenable<void> {
         const result = document.save(cancellation);
         this.startAlignmentTrainer();
-        return result
+        return result;
     }
 
     public saveCustomDocumentAs(document: UsfmDocument, destination: vscode.Uri, cancellation: vscode.CancellationToken): Thenable<void> {

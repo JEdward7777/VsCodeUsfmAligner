@@ -259,7 +259,7 @@ export default function App() {
   }
 
   const makeAlignmentSuggestions = async ( args:  {sourceSentence: TWord[], targetSentence: TWord[], maxSuggestions: number, manuallyAligned: TSourceTargetAlignment[]}) : Promise<TAlignmentSuggestion[]> => {
-    return (await postMessageWithResponse( { command: 'makeAlignmentSuggestions', content: getDocumentData(), commandArg: args } )).response;
+    return (await postMessageWithResponse( { command: 'makeAlignmentSuggestions', commandArg: args } )).response;
   }
 
   //Go ahead and subscribe to the plugin events.
