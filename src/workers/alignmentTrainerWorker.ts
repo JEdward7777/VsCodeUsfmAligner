@@ -3,13 +3,13 @@ import { WorkerMessage } from "./alignmentTrainerTypes";
 import path from 'path';
 import fs from 'fs';
 import zlib from 'zlib';
-import { TSourceTargetAlignment, TTrainingAndTestingData } from "../perfUtils";
+import { TSourceTargetAlignment, TTrainingAndTestingData } from "../utils";
 import { Token } from "wordmap-lexer";
 import { Alignment, Ngram } from "wordmap";
 import { updateTokenLocations } from "wordmapbooster/dist/wordmap_tools";
 import { MorphJLBoostWordMap } from "wordmapbooster/dist/boostwordmap_tools";
 import { Uri } from "vscode";
-import { bookGroupToModelName, getAllAlignmentDataFromBook, getBookGroups } from "../perfUtilsWithFs";
+import { bookGroupToModelName, getAllAlignmentDataFromBook, getBookGroups } from "../utilsWithFs";
 
 let nextRequestId : number = 0;
 //callbacks a map from a number to a resolve or reject function

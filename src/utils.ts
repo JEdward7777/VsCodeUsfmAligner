@@ -7,7 +7,35 @@ import {PipelineHandler} from 'proskomma-json-tools';
 import { Token } from 'wordmap-lexer';
 import { Alignment, Ngram, Prediction, Suggestion } from 'wordmap';
 
-//These types are not official, I add items to these types as
+
+export interface TStrippedUsfm{
+    version: number,
+    text: string
+}
+export interface TAlignmentData{
+    version: number,
+    perf: any,
+}
+
+export interface OptionalInternalUsfmJsonFormat{
+    strippedUsfm?: TStrippedUsfm,
+    alignmentData?: TAlignmentData,
+}
+export interface InternalUsfmJsonFormat{
+    strippedUsfm: TStrippedUsfm,
+    alignmentData: TAlignmentData,
+}
+
+export interface UsfmMessage{
+    command: string,
+    content?: OptionalInternalUsfmJsonFormat,
+    requestId?: number,
+    commandArg?: any,
+    response?: any,
+    error?: any,
+  }
+
+//The perf related types are not official, I add items to these types as
 //I verify they exist.
 interface PerfAttributes{
     number: string,

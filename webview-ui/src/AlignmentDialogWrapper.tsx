@@ -4,7 +4,7 @@ import { SuggestingWordAligner } from 'suggesting-word-aligner-rcl';
 
 import { PRIMARY_WORD, SECONDARY_WORD, TAlignmentSuggestion, TSourceTargetAlignment, 
     TWord, wordMapAlignmentToTSourceTargetAlignment, wordmapTokenToTWord, 
-    tAlignmentSuggestionToWordmapSuggestion, TWordAlignerAlignmentResult } from '../../src/perfUtils';
+    tAlignmentSuggestionToWordmapSuggestion, TWordAlignerAlignmentResult } from '../../src/utils';
 
 //import css
 import './AlignmentDialogWrapper.css';

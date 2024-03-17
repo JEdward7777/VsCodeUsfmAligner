@@ -11,31 +11,14 @@ import { WorkerMessage } from './workers/alignmentTrainerTypes';
 import { PRIMARY_WORD, SECONDARY_WORD, TSourceTargetAlignment, deepCopy, 
     extractAlignmentsFromPerfVerse, extractWrappedWordsFromPerfVerse, 
     mergeAlignmentPerf, pullVerseFromPerf, reindexPerfVerse, replaceAlignmentsInPerfVerse, replacePerfVerseInPerf, 
-    sortAndSupplementFromSourceWords, usfmToPerf, TWord, TAlignmentSuggestion, tWordToWordmapToken, tSourceTargetAlignmentToWordmapAlignment, wordmapSuggestionToTAlignmentSuggestion } from './perfUtils';
-import { bookGroupToModelName, filenameToBookGroup, getSourceFileForTargetFile, loadAlignmentModel } from './perfUtilsWithFs';
+    sortAndSupplementFromSourceWords, usfmToPerf, TWord, TAlignmentSuggestion, tWordToWordmapToken, 
+    tSourceTargetAlignmentToWordmapAlignment, wordmapSuggestionToTAlignmentSuggestion, InternalUsfmJsonFormat, 
+    UsfmMessage, OptionalInternalUsfmJsonFormat } from './utils';
+import { bookGroupToModelName, filenameToBookGroup, getSourceFileForTargetFile, loadAlignmentModel } from './utilsWithFs';
 import { AbstractWordMapWrapper } from 'wordmapbooster/dist/boostwordmap_tools';
 
 import { updateTokenLocations } from "wordmapbooster/dist/wordmap_tools";
 
-interface InternalUsfmJsonFormat{
-    strippedUsfm: {
-        version: number,
-        text: string
-    },
-    alignmentData: {
-        version: number,
-        perf: any,
-    }
-}
-
-interface UsfmMessage{
-    command: string,
-    content?: InternalUsfmJsonFormat,
-    requestId?: number,
-    commandArg?: any,
-    response?: any,
-    error?: any,
-  }
 
 export function disposeAll(disposables: vscode.Disposable[]): void {
     while (disposables.length) {
@@ -76,8 +59,10 @@ export abstract class Disposable {
 
 
 
-async function setAlignmentData( filename: string, data: InternalUsfmJsonFormat, args: { reference: string, newAlignments: any } ): Promise<void>{
+async function setAlignmentData( filename: string, data: OptionalInternalUsfmJsonFormat, args: { reference: string, newAlignments: any } ): Promise<void>{
     if( !args.reference ) return undefined;
+    if( !data.strippedUsfm ) return undefined;
+    if( !data.alignmentData ) return undefined;
 
 
     let mergedPerf = await mergeAlignmentPerf( usfmToPerf( data.strippedUsfm.text ), data.alignmentData.perf );
@@ -106,8 +91,10 @@ async function setAlignmentData( filename: string, data: InternalUsfmJsonFormat,
     return strippedAlign;
 }
 
-async function getAlignmentData( filename: string, data: InternalUsfmJsonFormat, reference: string ): Promise< {wordBank: TWord[], alignments: TSourceTargetAlignment[], reference: string} | undefined >{
+async function getAlignmentData( filename: string, data: OptionalInternalUsfmJsonFormat, reference: string ): Promise< {wordBank: TWord[], alignments: TSourceTargetAlignment[], reference: string} | undefined >{
     if( !reference ) return undefined;
+    if( !data.strippedUsfm ) return undefined;
+    if( !data.alignmentData ) return undefined;
 
     const getConfigurationFunction = async ( section: string ) => {
         return vscode.workspace?.getConfiguration("usfmEditor").get( section );
@@ -292,10 +279,7 @@ class UsfmDocument extends Disposable implements vscode.CustomDocument, UsfmDocu
     }
 
     public getStrippedUsfmText(): string {
-        if( this._documentData === undefined ){
-            return "";
-        }
-        return this._documentData.strippedUsfm.text;
+        return this._documentData?.strippedUsfm?.text ?? "";
     }
 
     private readonly _onDidDispose = this._register(new vscode.EventEmitter<void>());
@@ -1072,7 +1056,6 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
         }
     }
 
-    
 
     private updateUsfmDocument(document: UsfmDocument, data: UsfmMessage, webviewPanel: vscode.WebviewPanel) {
         if( document.isClosed ) { return; }
@@ -1081,23 +1064,27 @@ export class UsfmEditorProvider implements vscode.CustomEditorProvider<UsfmDocum
             let doUpdateState = false;
             let doSendReply = false;
             let newDocumentData = document.documentData;
-            if( data.content.alignmentData.version > newDocumentData.alignmentData.version ){
-                doUpdateState = true;
-                newDocumentData = {
-                    ...newDocumentData,
-                    alignmentData: data.content.alignmentData
-                };
-            }else if( data.content.alignmentData.version < newDocumentData.alignmentData.version ){
-                doSendReply = true;
+            if( data.content.alignmentData !== undefined ){
+                if( data.content.alignmentData.version > newDocumentData.alignmentData.version ){
+                    doUpdateState = true;
+                    newDocumentData = {
+                        ...newDocumentData,
+                        alignmentData: data.content.alignmentData
+                    };
+                }else if( data.content.alignmentData.version < newDocumentData.alignmentData.version ){
+                    doSendReply = true;
+                }
             }
-            if( data.content.strippedUsfm.version > newDocumentData.strippedUsfm.version ){
-                doUpdateState = true;
-                newDocumentData = {
-                    ...newDocumentData,
-                    strippedUsfm: data.content.strippedUsfm
-                };
-            }else if( data.content.strippedUsfm.version < newDocumentData.strippedUsfm.version ){
-                doSendReply = true;
+            if( data.content.strippedUsfm !== undefined ){
+                if( data.content.strippedUsfm.version > newDocumentData.strippedUsfm.version ){
+                    doUpdateState = true;
+                    newDocumentData = {
+                        ...newDocumentData,
+                        strippedUsfm: data.content.strippedUsfm
+                    };
+                }else if( data.content.strippedUsfm.version < newDocumentData.strippedUsfm.version ){
+                    doSendReply = true;
+                }
             }
 
             if( doUpdateState ){

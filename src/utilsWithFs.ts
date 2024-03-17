@@ -3,7 +3,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import * as zlib from 'zlib';
 import { Uri, WorkspaceFolder } from "vscode";
-import { PRIMARY_WORD, Perf, PerfVerse, SECONDARY_WORD, TSourceTargetAlignment, TTrainingAndTestingData, TWord, extractAlignmentsFromPerfVerse, extractWrappedWordsFromPerfVerse, getSourceFolders, pullVersesFromPerf, reindexPerfVerse, sortAndSupplementFromSourceWords, usfmToPerf } from './perfUtils';
+import { PRIMARY_WORD, Perf, PerfVerse, SECONDARY_WORD, TSourceTargetAlignment, TTrainingAndTestingData, TWord, extractAlignmentsFromPerfVerse, extractWrappedWordsFromPerfVerse, getSourceFolders, pullVersesFromPerf, reindexPerfVerse, sortAndSupplementFromSourceWords, usfmToPerf } from './utils';
 import { AbstractWordMapWrapper } from 'wordmapbooster/dist/boostwordmap_tools';
 
 

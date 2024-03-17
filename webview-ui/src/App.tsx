@@ -3,7 +3,7 @@ import { useState } from 'react'
 // import viteLogo from '/vite.svg'
 import './App.css'
 import AlignmentDialogWrapper, { VersionInfo } from './AlignmentDialogWrapper';
-import { TAlignmentSuggestion, TSourceTargetAlignment, TSourceTargetPrediction, TWord } from '../../src/perfUtils';
+import { InternalUsfmJsonFormat, OptionalInternalUsfmJsonFormat, TAlignmentSuggestion, TSourceTargetAlignment, TSourceTargetPrediction, TWord, UsfmMessage } from '../../src/utils';
 
 function deepCopy(obj: any): any {
   return JSON.parse(JSON.stringify(obj));
@@ -53,25 +53,6 @@ import { useEffect } from 'react';
 import React from 'react';
 
 
-interface InternalUsfmJsonFormat{
-  strippedUsfm: {
-      version: number,
-      text: string
-  },
-  alignmentData: {
-      version: number,
-      perf: any,
-  }
-}
-interface UsfmMessage{
-  command: string,
-  content?: InternalUsfmJsonFormat,
-  requestId?: number,
-  commandArg?: any,
-  response?: any,
-  error?: any,
-}
-
 interface VsCodeStub{
   postMessage: (message: UsfmMessage) => void
 }
@@ -108,11 +89,21 @@ export default function App() {
 
   const ignoreChangeCountRef = React.useRef(0);
 
-  const setDocumentData = ( newDocumentData : InternalUsfmJsonFormat, sendSyncMessage : boolean = true ) => {
+  const setDocumentData = ( {newDocumentData, sendAlignmentData = true, sendStrippedUsfm = true} : {newDocumentData: InternalUsfmJsonFormat, sendAlignmentData?: boolean, sendStrippedUsfm?: boolean} ) => {
+    //set the document data
     _documentDataRef.current = newDocumentData;
     _setDocumentDataState( newDocumentData );
-    if( sendSyncMessage ){
-      vscodeRef.current?.postMessage({ command: 'sync', content: getDocumentData() });
+    if( sendStrippedUsfm || sendAlignmentData ){
+      let updateContent : OptionalInternalUsfmJsonFormat = {};
+      
+      if( sendStrippedUsfm && sendAlignmentData ){
+        updateContent = getDocumentData();
+      }else if( sendStrippedUsfm ){
+        updateContent.strippedUsfm = getDocumentData().strippedUsfm;
+      }else if( sendAlignmentData ){
+        updateContent.alignmentData = _documentDataRef.current.alignmentData;
+      }
+      vscodeRef.current?.postMessage({ command: 'sync', content: updateContent });
     }
   }
 
@@ -251,10 +242,10 @@ export default function App() {
   const setAlignmentData = async ( newAlignments : any, reference: string ) : Promise<VersionInfo> => {
     const documentData = getDocumentData();
     const newConvertedAlignmentData = (await postMessageWithResponse( { command: 'setAlignmentData', content: documentData, commandArg: { reference, newAlignments } } )).response;
-    const newDocumentData = { ...documentData };
+    const newDocumentData : InternalUsfmJsonFormat = { ...documentData };
     newDocumentData.alignmentData.perf = newConvertedAlignmentData;
     newDocumentData.alignmentData.version += 1 + Math.random();
-    setDocumentData( newDocumentData );
+    setDocumentData( {newDocumentData, sendStrippedUsfm: false} );
     return { strippedUsfmVersion: newDocumentData.strippedUsfm.version, alignmentDataVersion: newDocumentData.alignmentData.version, reference };
   }
 
@@ -273,32 +264,36 @@ export default function App() {
         let doSendReply = false;
         let doEditorUpdate = false;
         let newDocumentData = getDocumentData();
-        if( e.data.content.alignmentData.version > newDocumentData.alignmentData.version ){
-          doUpdateState = true;
-          newDocumentData = {
-            ...newDocumentData,
-            alignmentData: e.data.content.alignmentData
-          };
-        }else if( e.data.content.alignmentData.version < newDocumentData.alignmentData.version ){
-          doSendReply = true;
-        }
-        if( e.data.content.strippedUsfm.version > newDocumentData.strippedUsfm.version ){
-          doUpdateState = true;
-          newDocumentData = {
-            ...newDocumentData,
-            strippedUsfm: e.data.content.strippedUsfm
-          };
-          doEditorUpdate = true;
-        }else if( e.data.content.strippedUsfm.version < newDocumentData.strippedUsfm.version ){
-          //Don't bother sending a reply if we have an outgoing edit waiting to go.
-          if( handleEditorChangeDebounceRef.current === 0 ){
+        if( e.data.content.alignmentData !== undefined ){
+          if( e.data.content.alignmentData.version > newDocumentData.alignmentData.version ){
+            doUpdateState = true;
+            newDocumentData = {
+              ...newDocumentData,
+              alignmentData: e.data.content.alignmentData
+            };
+          }else if( e.data.content.alignmentData.version < newDocumentData.alignmentData.version ){
             doSendReply = true;
           }
         }
-        if( doUpdateState ){
-          setDocumentData(newDocumentData, false);
+        if( e.data.content.strippedUsfm !== undefined ){
+          if( e.data.content.strippedUsfm.version > newDocumentData.strippedUsfm.version ){
+            doUpdateState = true;
+            newDocumentData = {
+              ...newDocumentData,
+              strippedUsfm: e.data.content.strippedUsfm
+            };
+            doEditorUpdate = true;
+          }else if( e.data.content.strippedUsfm.version < newDocumentData.strippedUsfm.version ){
+            //Don't bother sending a reply if we have an outgoing edit waiting to go.
+            if( handleEditorChangeDebounceRef.current === 0 ){
+              doSendReply = true;
+            }
+          }
         }
-        if( doEditorUpdate ){
+        if( doUpdateState ){
+          setDocumentData({newDocumentData, sendAlignmentData:false, sendStrippedUsfm:false });
+        }
+        if( doEditorUpdate && e.data.content.strippedUsfm !== undefined ){
           ignoreChangeCountRef.current += 1;
           const position = editorRef.current?.getPosition();
           model.setValue(e.data.content.strippedUsfm.text);
